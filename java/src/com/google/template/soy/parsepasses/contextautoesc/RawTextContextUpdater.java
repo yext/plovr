@@ -21,6 +21,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
 import com.google.template.soy.internal.base.UnescapeUtils;
+import com.google.template.soy.parsepasses.contextautoesc.Context.ElementType;
 import com.google.template.soy.soytree.RawTextNode;
 
 import java.util.List;
@@ -140,7 +141,7 @@ final class RawTextContextUpdater {
           // rawText.charAt(endOffset) is now ">" in the example above.
 
           // When an attribute ends, we're back in the tag.
-          endContext = context.toBuilder()
+          endContext = attrContext.toBuilder()
               .withState(Context.State.HTML_TAG)
               .withoutAttrContext()
               .build();
@@ -395,6 +396,8 @@ final class RawTextContextUpdater {
                    || CUSTOM_URI_ATTR_NAMING_CONVENTION.matcher(localName).find()
                    || "xmlns".equals(attrName) || attrName.startsWith("xmlns:")) {
           attr = Context.AttributeType.URI;
+        } else if ("type".equals(localName) && prior.elType == ElementType.SCRIPT) {
+            attr = Context.AttributeType.TYPE;
         } else {
           attr = Context.AttributeType.PLAIN_TEXT;
         }
@@ -560,6 +563,24 @@ final class RawTextContextUpdater {
     };
   }
 
+  /**
+   * Matches a Mime-type value and overrides the deduced element type if in the context of a
+   * Mime-type attribute value.
+   */
+  private static Transition makeTransitionToMimeType(String mime, final Context.ElementType el) {
+    String regex = "(?i)^" + mime;
+    return new Transition(regex) {
+      @Override boolean isApplicableTo(Context prior, Matcher matcher) {
+        return prior.attrType == Context.AttributeType.TYPE;
+      }
+      @Override Context computeNextContext(Context prior, Matcher matcher) {
+        return prior.toBuilder()
+                    .withElType(el)
+                    .build();
+      }
+    };
+  }
+
   /** Characters that break a line in JavaScript source suitable for use in a regex charset. */
   private static final String JS_LINEBREAKS = "\\r\\n\u2028\u2029";
 
@@ -646,6 +667,7 @@ final class RawTextContextUpdater {
           makeTransitionTo("-->", ContentKind.HTML),
           TRANSITION_TO_SELF))
       .put(Context.State.HTML_NORMAL_ATTR_VALUE, ImmutableList.of(
+          makeTransitionToMimeType("text/template", Context.ElementType.NORMAL),
           TRANSITION_TO_SELF))
       // The CSS transitions below are based on http://www.w3.org/TR/css3-syntax/#lexical
       .put(Context.State.CSS, ImmutableList.of(

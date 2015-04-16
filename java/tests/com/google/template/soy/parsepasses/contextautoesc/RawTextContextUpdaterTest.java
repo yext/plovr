@@ -56,6 +56,7 @@ public class RawTextContextUpdaterTest extends TestCase {
     assertTransition("HTML_PCDATA", "<script>", "JS REGEX");
     assertTransition("HTML_PCDATA", "<script >", "JS REGEX");
     assertTransition("HTML_PCDATA", "<script type=\"text/javascript\">", "JS REGEX");
+    assertTransition("HTML_PCDATA", "<script type=\"text/template\">", "HTML_PCDATA");
     assertTransition("HTML_PCDATA", "<a ", "HTML_TAG NORMAL");
     assertTransition("HTML_PCDATA", "<a title=foo id='x'", "HTML_TAG NORMAL");
     assertTransition("HTML_PCDATA", "<a title=\"foo\"", "HTML_TAG NORMAL");
@@ -73,6 +74,7 @@ public class RawTextContextUpdaterTest extends TestCase {
     assertTransition("HTML_PCDATA", "<xmp style=\"", "CSS XMP STYLE DOUBLE_QUOTE");
     assertTransition("HTML_PCDATA", "<xmp style='/*", "CSS_COMMENT XMP STYLE SINGLE_QUOTE");
     assertTransition("HTML_PCDATA", "<script src=", "HTML_BEFORE_ATTRIBUTE_VALUE SCRIPT URI");
+    assertTransition("HTML_PCDATA", "<script type=", "HTML_BEFORE_ATTRIBUTE_VALUE SCRIPT TYPE");
     assertTransition(
         "HTML_PCDATA", "<script src=/search?q=", "URI SCRIPT URI SPACE_OR_TAG_END QUERY");
     assertTransition(
