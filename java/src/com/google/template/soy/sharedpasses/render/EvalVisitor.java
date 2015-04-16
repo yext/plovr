@@ -351,7 +351,7 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
         return value;
       } else {
         // PATCH(robfig): Throw RenderException due to non-nullsafe access on null.
-        throw new RenderException(String.format(
+        throw RenderException.create(String.format(
               "While evaluating \"%s\", encountered null just before accessing \"%s\".",
               dataAccess.toSourceString(),
               dataAccess.getSourceStringSuffix()));
