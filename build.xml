@@ -80,7 +80,7 @@
     <ant dir="${closure-templates.dir}" target="compile" inheritAll="false" useNativeBasedir="true" />
     <ant dir="${closure-stylesheets.dir}" target="javacc" inheritAll="false" useNativeBasedir="true" />
   </target>
-  
+
   <target name="compile" depends="pre-compile" description="compile Java source code">
     <mkdir dir="${classes.dir}" />
     <!--
@@ -96,7 +96,7 @@
            includeantruntime="false"
            encoding="UTF-8"
            >
-      <compilerarg value="-Werror"/>
+
       <src path="${closure-stylesheets.dir}/src" />
       <src path="${closure-stylesheets.dir}/build/genfiles" />
     </javac>
@@ -108,7 +108,7 @@
            source="1.7"
            includeantruntime="true"
            encoding="UTF-8"
-           > 
+           >
       <src path="${closure-compiler.dir}/src" />
       <src path="${closure-compiler.dir}/gen" />
       <src path="${closure-templates.dir}/java/src" />
@@ -122,7 +122,7 @@
            source="1.7"
            includeantruntime="true"
            encoding="UTF-8"
-           > 
+           >
       <src path="${src.dir}" />
       <src path="${test.dir}" />
     </javac>
@@ -155,7 +155,7 @@
         <include name="**/*.soy" />
       </fileset>
     </copy>
-    
+
     <!-- Include these files to support the "info" command. -->
     <mkdir dir="${classes.dir}/revisions"/>
     <copy todir="${basedir}/build/classes/revisions/">
@@ -237,7 +237,7 @@
           depends="compile, externs, library, third_party"
           description="build plovr.jar">
     <mkdir dir="${build.dir}" />
-    
+
     <!-- Copy resources needed for org.plovr.docgen package. -->
     <copy todir="${classes.dir}/org/plovr/docgen">
       <fileset dir="${src.dir}/org/plovr/docgen">
@@ -361,7 +361,7 @@
       <link href="http://closure-templates.googlecode.com/svn/trunk/javadoc-complete/" />
     </javadoc>
   </target>
-  
+
   <!--
   This runs plovr such that classfiles from build/classes are loaded before
   those in plovr.jar. This way, when developing the documentation generation
