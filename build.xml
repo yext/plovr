@@ -39,7 +39,6 @@
     <fileset dir="${lib.dir}" includes="*.jar" />
     <fileset dir="${closure-compiler.dir}/lib"
              includes="args4j.jar,
-                       guava.jar,
                        json.jar,
                        jsr305.jar,
                        protobuf-java.jar,
@@ -49,6 +48,7 @@
              includes="aopalliance.jar,
                        asm*.jar,
                        auto-value*.jar,
+                       guava-18.0.jar,
                        guice-3.0.jar,
                        guice-assistedinject-3.0.jar,
                        guice-multibindings-3.0.jar,
@@ -83,32 +83,16 @@
 
   <target name="compile" depends="pre-compile" description="compile Java source code">
     <mkdir dir="${classes.dir}" />
-    <!--
-      Compile Closure Stylesheets genfiles separately because it triggers deprecation
-      warnings, and we would like to compile with warnings treated as errors.
-     -->
     <javac destdir="${classes.dir}"
            classpathref="plovr.classpath"
            debug="on"
-           fork="false"
-           target="1.8"
-           source="1.8"
-           includeantruntime="false"
-           encoding="UTF-8"
-           >
-      <compilerarg value="-Werror"/>
-      <src path="${closure-stylesheets.dir}/src" />
-      <src path="${closure-stylesheets.dir}/build/genfiles" />
-    </javac>
-    <javac destdir="${classes.dir}"
-           classpathref="plovr.classpath"
-           debug="on"
-           deprecation="on"
-           target="1.8"
-           source="1.8"
+           target="1.7"
+           source="1.7"
            includeantruntime="true"
            encoding="UTF-8"
            >
+      <src path="${closure-stylesheets.dir}/src" />
+      <src path="${closure-stylesheets.dir}/build/genfiles" />
       <src path="${closure-compiler.dir}/src" />
       <src path="${closure-compiler.dir}/gen" />
       <src path="${closure-templates.dir}/java/src" />
@@ -128,9 +112,8 @@
     </javac>
 
     <!-- Move Messages.properties where ScriptRuntime.java expects it. -->
-    <mkdir dir="${classes.dir}/rhino_ast/java/com/google/javascript/rhino/" />
     <copy file="${closure-compiler.dir}/src/com/google/javascript/rhino/Messages.properties"
-          todir="${classes.dir}/rhino_ast/java/com/google/javascript/rhino/" />
+          todir="${classes.dir}/com/google/javascript/rhino/" />
 
     <!-- Move ParserConfig.properties where ParserRunner.java expects it. -->
     <copy file="${closure-compiler.dir}/src/com/google/javascript/jscomp/parsing/ParserConfig.properties"
@@ -264,27 +247,6 @@
       <zipfileset dir="${soy-resources.dir}"
                   includes="**/*.js"
                   />
-      <zipgroupfileset dir="${lib.dir}"
-                       includes="*.jar"
-                       />
-      <zipgroupfileset dir="${closure-compiler.dir}/lib"
-                       includes="args4j.jar,
-                                 guava.jar,
-                                 json.jar,
-                                 jsr305.jar,
-                                 protobuf-java.jar"
-                       />
-      <zipgroupfileset dir="${closure-templates.dir}/java/lib"
-                       includes="aopalliance.jar,
-                                 asm*.jar,
-                                 auto-value*.jar,
-                                 guice-3.0.jar,
-                                 guice-assistedinject-3.0.jar,
-                                 guice-multibindings-3.0.jar,
-                                 icu4j-51_1.jar,
-                                 javax.inject.jar"
-                       />
-
       <fileset dir="${classes.dir}" />
       <manifest>
         <attribute name="Main-Class" value="org.plovr.cli.Main" />
