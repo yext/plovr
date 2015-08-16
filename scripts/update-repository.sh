@@ -2,6 +2,8 @@
 #
 # Use this script to update the specified Closure Tool. Usage:
 #
+# NOTE(robfig): Updated to pull from yext/* instead of google/*
+#
 # ./update-repository.sh closure-library
 
 cd `dirname $0`/..
@@ -21,4 +23,4 @@ if [ ! -d "closure/${REPOSITORY}" ]; then
 fi
 
 set -ex
-git subtree pull --prefix="closure/${REPOSITORY}" "git@github.com:google/${REPOSITORY}" master
+git subtree pull --prefix="closure/${REPOSITORY}" "git@github.com:yext/${REPOSITORY}" master
