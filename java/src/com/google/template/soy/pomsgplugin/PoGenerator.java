@@ -4,6 +4,7 @@ import com.google.template.soy.internal.base.Pair;
 import com.google.template.soy.msgs.SoyMsgBundle;
 import com.google.template.soy.msgs.restricted.SoyMsg;
 import com.google.template.soy.msgs.restricted.SoyMsgPart;
+import com.google.template.soy.msgs.restricted.SoyMsgPart.Case;
 import com.google.template.soy.msgs.restricted.SoyMsgPlaceholderPart;
 import com.google.template.soy.msgs.restricted.SoyMsgPluralCaseSpec;
 import com.google.template.soy.msgs.restricted.SoyMsgRawTextPart;
@@ -165,17 +166,17 @@ public class PoGenerator {
    */
   static String generatePluralMessage(SoyMsgPluralPart msgPart) throws PoException {
     StringBuilder msgBuilder = new StringBuilder();
-    for (Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>> pluralPart : msgPart.getCases()) {
-      if (pluralPart.first.getType() == SoyMsgPluralCaseSpec.Type.EXPLICIT &&
-          pluralPart.first.getExplicitValue() == 1) {
+    for (Case<SoyMsgPluralCaseSpec> pluralPart : msgPart.getCases()) {
+      if (pluralPart.spec().getType() == SoyMsgPluralCaseSpec.Type.EXPLICIT &&
+          pluralPart.spec().getExplicitValue() == 1) {
         msgBuilder.append("msgid \"");
-        for (SoyMsgPart pluralSubPart : pluralPart.second) {
+        for (SoyMsgPart pluralSubPart : pluralPart.parts()) {
             msgBuilder.append(message(pluralSubPart));
         }
         msgBuilder.append("\"\n");
-      } else if (pluralPart.first.getType() == SoyMsgPluralCaseSpec.Type.OTHER) {
+      } else if (pluralPart.spec().getType() == SoyMsgPluralCaseSpec.Type.OTHER) {
         msgBuilder.append("msgid_plural \"");
-        for (SoyMsgPart pluralSubPart : pluralPart.second) {
+        for (SoyMsgPart pluralSubPart : pluralPart.parts()) {
           msgBuilder.append(message(pluralSubPart));
         }
         msgBuilder.append("\"\n");

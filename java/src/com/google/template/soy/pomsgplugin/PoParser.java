@@ -10,6 +10,7 @@ import com.google.template.soy.msgs.SoyMsgException;
 import com.google.template.soy.msgs.restricted.SoyMsg;
 import com.google.template.soy.msgs.restricted.SoyMsgBundleImpl;
 import com.google.template.soy.msgs.restricted.SoyMsgPart;
+import com.google.template.soy.msgs.restricted.SoyMsgPart.Case;
 import com.google.template.soy.msgs.restricted.SoyMsgPlaceholderPart;
 import com.google.template.soy.msgs.restricted.SoyMsgPluralCaseSpec;
 import com.google.template.soy.msgs.restricted.SoyMsgPluralPart;
@@ -91,17 +92,12 @@ public class PoParser {
   }
 
   private static SoyMsgPluralPart parsePluralTranslation(String translationLines) {
-
-    ArrayList<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>> cases
-        = new ArrayList<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>>();
-
+    List<Case<SoyMsgPluralCaseSpec>> cases = new ArrayList<>();
     Scanner scanner = new Scanner(translationLines);
     scanner.useDelimiter("\n");
-
     while (scanner.hasNext()) {
       cases.add(parsePluralTranslationLine(scanner.nextLine()));
     }
-
     return new SoyMsgPluralPart("varName", 0, ImmutableList.copyOf(cases));
   }
 
@@ -135,7 +131,7 @@ public class PoParser {
     }
   }
 
-  private static Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>> parsePluralTranslationLine(String translationLine) {
+  private static Case<SoyMsgPluralCaseSpec> parsePluralTranslationLine(String translationLine) {
     int n;
     Scanner scanner = new Scanner(translationLine);
     scanner.useDelimiter("\\[|\\]");
@@ -150,6 +146,6 @@ public class PoParser {
 
     parseTranslationLine(scanner.nextLine(), parts);
 
-    return new Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>(caseSpec, ImmutableList.copyOf(parts));
+    return Case.create(caseSpec, parts);
   }
 }
