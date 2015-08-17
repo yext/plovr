@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
 import com.google.template.soy.internal.base.UnescapeUtils;
 import com.google.template.soy.parsepasses.contextautoesc.Context.ElementType;
+import com.google.template.soy.parsepasses.contextautoesc.Context.UriPart;
 import com.google.template.soy.soytree.RawTextNode;
 
 import java.util.List;
@@ -207,12 +208,6 @@ final class RawTextContextUpdater {
    * @param text Non empty.
    */
   private void processNextToken(String text, Context context) throws SoyAutoescapeException {
-    if (context.isErrorContext()) {  // The ERROR state is infectious.
-      this.numCharsConsumed = text.length();
-      this.next = context;
-      return;
-    }
-
     // Find the transition whose pattern matches earliest in the raw text.
     int earliestStart = Integer.MAX_VALUE;
     int earliestEnd = -1;
@@ -238,8 +233,8 @@ final class RawTextContextUpdater {
       this.next = earliestTransition.computeNextContext(context, earliestMatcher);
       this.numCharsConsumed = earliestEnd;
     } else {
-      this.next = Context.ERROR;
-      this.numCharsConsumed = text.length();
+      throw SoyAutoescapeException.createWithoutMetaInfo(
+          "Error determining next state when encountering \"" + text + "\" in " + context);
     }
     if (numCharsConsumed == 0 && this.next.state == context.state) {
       throw new IllegalStateException("Infinite loop at `" + text + "` / " + context);
@@ -344,7 +339,8 @@ final class RawTextContextUpdater {
       @Override Context computeNextContext(Context prior, Matcher matcher) {
         boolean isEndTag = "/".equals(matcher.group(1));
         if (isEndTag && prior.templateNestDepth == 0) {
-          return Context.ERROR;
+          throw SoyAutoescapeException.createWithoutMetaInfo(
+              "Saw an html5 </template> without encountering <template>.");
         }
         Context.Builder builder = prior.toBuilder()
             .withTemplateNestDepth(prior.templateNestDepth + (isEndTag ? -1 : 1))
@@ -448,7 +444,18 @@ final class RawTextContextUpdater {
   private static Transition makeTransitionToState(String regex, final Context.State state) {
     return new Transition(regex) {
       @Override Context computeNextContext(Context prior, Matcher matcher) {
-        return prior.derive(state).derive(Context.UriPart.NONE);
+        return prior.derive(state).derive(UriPart.NONE);
+      }
+    };
+  }
+
+  /**
+   * A transition to an error state.
+   */
+  private static Transition makeTransitionToError(String regex, final String message) {
+    return new Transition(regex) {
+      @Override Context computeNextContext(Context prior, Matcher matcher) {
+        throw SoyAutoescapeException.createWithoutMetaInfo(message);
       }
     };
   }
@@ -463,7 +470,7 @@ final class RawTextContextUpdater {
         return prior.toBuilder()
             .withState(state)
             .withSlashType(Context.JsFollowingSlash.NONE)
-            .withUriPart(Context.UriPart.NONE)
+            .withUriPart(UriPart.NONE)
             .build();
       }
     };
@@ -484,24 +491,128 @@ final class RawTextContextUpdater {
   private static final Transition TRANSITION_TO_SELF = makeTransitionToSelf("\\z");
   // Matching at the end is lowest possible precedence.
 
-  private static final Transition URI_PART_TRANSITION = new Transition("[?#]|\\z") {
+  private static UriPart getNextUriPart(UriPart uriPart, char matchChar) {
+    // This switch statement is designed to process a URI in order via a sequence of fall throughs.
+    switch (uriPart) {
+      case MAYBE_SCHEME:
+      case MAYBE_VARIABLE_SCHEME:
+        // From the RFC: https://tools.ietf.org/html/rfc3986#section-3.1
+        // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+        // At this point, our goal is to try to prove that we've safely left the scheme, and then
+        // transition to a more specific state.
+
+        if (matchChar == ':') {
+          // Ah, it looks like we might be able to conclude we've set the scheme, but...
+          if (uriPart == UriPart.MAYBE_VARIABLE_SCHEME) {
+            // At the start of a URL, and we already saw a print statement, and now we suddenly
+            // see a colon. While this could be relatively safe if it's a {$host}:{$port} pair,
+            // at compile-time, we can't be sure that "$host" isn't something like "javascript"
+            // and "$port" isn't "deleteMyAccount()".
+            throw SoyAutoescapeException.createWithoutMetaInfo(
+                "Soy can't safely process a URI that might start with a variable scheme. "
+                + "For example, {$x}:{$y} could have an XSS if $x is 'javascript' and $y is "
+                + "attacker-controlled. Either use a hard-coded scheme, or introduce "
+                + "disambiguating characters (e.g. http://{$x}:{$y}, ./{$x}:{$y}, or "
+                + "{$x}?foo=:{$y})");
+          } else {
+            // At the start of the URL, and we just saw some hard-coded characters and a colon, like
+            // http:. This is safe (assuming it's a good scheme), and now we're on our way to the
+            // authority.
+            // TODO(gboyer): Transition to a stricter state if we end up seeing a dangerous scheme
+            // like javascript:, and only allow hard-coded paths.
+            return UriPart.AUTHORITY_OR_PATH;
+          }
+        }
+
+        if (matchChar == '/') {
+          // Upon seeing a slash, it's impossible to set a valid scheme anymore. Either we're in the
+          // path, or we're starting a protocol-relative URI. (For all we know, we *could* be
+          // in the query, e.g. {$base}/foo if $base has a question mark, but sadly we have to go
+          // by what we know statically. However, usually query param groups tend to contain
+          // ampersands and equal signs, which we check for later heuristically.)
+          return UriPart.AUTHORITY_OR_PATH;
+        }
+
+        if ((matchChar == '=' || matchChar == '&') && uriPart == UriPart.MAYBE_VARIABLE_SCHEME) {
+          // This case is really special, and is only seen in cases like href="{$x}&amp;foo={$y}" or
+          // href="{$x}foo={$y}".  While in this case we can never be sure that we're in the query
+          // part, we do know two things:
+          //
+          // 1) We can't possibly set a dangerous scheme, since no valid scheme contains = or &
+          // 2) Within QUERY, all print statements are encoded as a URI component, which limits
+          // the damage that can be done; it can't even break into another path segment.
+          // Therefore, it is secure to assume this.
+          //
+          // Note we can safely handle ampersand even in HTML contexts because attribute values
+          // are processed unescaped.
+          return UriPart.QUERY;
+        }
+        // fall through
+      case AUTHORITY_OR_PATH:
+      case UNKNOWN_PRE_FRAGMENT:
+        if (matchChar == '?') {
+          // Upon a ? we can be pretty sure we're in the query. While it's possible for something
+          // like {$base}?foo=bar to be in the fragment if $base contains a #, it's safe to assume
+          // we're in the query, because query params are escaped more strictly than the fragment.
+          return UriPart.QUERY;
+        }
+        // fall through
+      case QUERY:
+      case UNKNOWN:
+        if (matchChar == '#') {
+          // A # anywhere proves we're in the fragment, even if we're already in the fragment.
+          return UriPart.FRAGMENT;
+        }
+        // fall through
+      case FRAGMENT:
+        // No transitions for fragment.
+        return uriPart;
+      case DANGEROUS_SCHEME:
+        // Dangerous schemes remain dangerous.
+        return UriPart.DANGEROUS_SCHEME;
+      default:
+        throw new AssertionError("Unanticipated URI part: " + uriPart);
+    }
+  }
+
+  /**
+   * Transition between different parts of an http-like URL.
+   *
+   * <p>This happens on the first important URI character, or upon seeing the end of the raw text
+   * segment and not seeing anything else.
+   */
+  private static final Transition URI_PART_TRANSITION = new Transition(
+      "([:./&?=#])|\\z") {
     @Override boolean isApplicableTo(Context prior, Matcher matcher) {
       return true;
     }
+
     @Override Context computeNextContext(Context prior, Matcher matcher) {
-      Context.UriPart uriPart = prior.uriPart;
-      if (uriPart == Context.UriPart.START) {
-        uriPart = Context.UriPart.PRE_QUERY;
+      UriPart uriPart = prior.uriPart;
+      if (uriPart == UriPart.START) {
+        uriPart = UriPart.MAYBE_SCHEME;
       }
-      if (uriPart != Context.UriPart.FRAGMENT) {
-        String match = matcher.group(0);
-        if ("?".equals(match) && uriPart != Context.UriPart.UNKNOWN) {
-          uriPart = Context.UriPart.QUERY;
-        } else if ("#".equals(match)) {
-          uriPart = Context.UriPart.FRAGMENT;
-        }
+      String match = matcher.group(1);
+      if (match != null) {
+        uriPart = getNextUriPart(uriPart, match.charAt(0));
       }
       return prior.derive(uriPart);
+    }
+  };
+
+  /**
+   * Transition to detect dangerous URI schemes.
+   */
+  private static final Transition URI_START_TRANSITION =
+      new Transition("(?i)^(javascript:)") {
+    @Override boolean isApplicableTo(Context prior, Matcher matcher) {
+      return prior.uriPart == UriPart.START;
+    }
+
+    @Override Context computeNextContext(Context prior, Matcher matcher) {
+      // TODO(gboyer): Perhaps we can make exceptions for image URIs, etc.
+      // TODO(gboyer): Ban other unsafe schemes, like filesystem:, blob:, and maybe file:.
+      return prior.derive(UriPart.DANGEROUS_SCHEME);
     }
   };
 
@@ -543,7 +654,7 @@ final class RawTextContextUpdater {
         }
         return prior.toBuilder()
             .withState(state)
-            .withUriPart(Context.UriPart.START)
+            .withUriPart(UriPart.START)
             .build();
       }
     };
@@ -685,31 +796,34 @@ final class RawTextContextUpdater {
       .put(Context.State.CSS_DQ_STRING, ImmutableList.of(
           makeTransitionToState("\"", Context.State.CSS),
           makeTransitionToSelf("\\\\(?:\r\n?|[\n\f\"])"),  // Line continuation or escape.
-          makeTransitionToState("[\n\r\f]", Context.State.ERROR),
+          makeTransitionToError("[\n\r\f]", "Newlines not permitted in string literals."),
           makeEndTagTransition("style"),  // TODO: Make this an error transition?
           TRANSITION_TO_SELF))
       .put(Context.State.CSS_SQ_STRING, ImmutableList.of(
           makeTransitionToState("'", Context.State.CSS),
           makeTransitionToSelf("\\\\(?:\r\n?|[\n\f'])"),  // Line continuation or escape.
-          makeTransitionToState("[\n\r\f]", Context.State.ERROR),
+          makeTransitionToError("[\n\r\f]", "Newlines not permitted in string literals."),
           makeEndTagTransition("style"),  // TODO: Make this an error transition?
           TRANSITION_TO_SELF))
       .put(Context.State.CSS_URI, ImmutableList.of(
           makeTransitionToState("[\\)\\s]", Context.State.CSS),
           URI_PART_TRANSITION,
-          makeTransitionToState("[\"']", Context.State.ERROR),
+          URI_START_TRANSITION,
+          makeTransitionToError("[\"']", "Quotes not permitted in CSS URIs."),
           makeEndTagTransition("style")))
       .put(Context.State.CSS_SQ_URI, ImmutableList.of(
           makeTransitionToState("'", Context.State.CSS),
           URI_PART_TRANSITION,
+          URI_START_TRANSITION,
           makeTransitionToSelf("\\\\(?:\r\n?|[\n\f'])"),  // Line continuation or escape.
-          makeTransitionToState("[\n\r\f]", Context.State.ERROR),
+          makeTransitionToError("[\n\r\f]", "Newlines not permitted in string literal."),
           makeEndTagTransition("style")))
       .put(Context.State.CSS_DQ_URI, ImmutableList.of(
           makeTransitionToState("\"", Context.State.CSS),
           URI_PART_TRANSITION,
+          URI_START_TRANSITION,
           makeTransitionToSelf("\\\\(?:\r\n?|[\n\f\"])"),  // Line continuation or escape.
-          makeTransitionToState("[\n\r\f]", Context.State.ERROR),
+          makeTransitionToError("[\n\r\f]", "Newlines not permitted in string literal."),
           makeEndTagTransition("style")))
       .put(Context.State.JS, ImmutableList.of(
           makeTransitionToState("/\\*", Context.State.JS_BLOCK_COMMENT),
@@ -804,10 +918,7 @@ final class RawTextContextUpdater {
                   "|\\\\?<(?!/script)" +                   // or an angle bracket possibly escaped.
                 "\\]" +
               ")+")))
-      // TODO: Do we need to recognize URI attributes that start with javascript:, data:text/html,
-      // etc. and transition to JS instead with a second layer of percent decoding triggered by
-      // a protocol in (DATA, JAVASCRIPT, NONE) added to Context?
-      .put(Context.State.URI, ImmutableList.of(URI_PART_TRANSITION))
+      .put(Context.State.URI, ImmutableList.of(URI_PART_TRANSITION, URI_START_TRANSITION))
       .put(Context.State.HTML_RCDATA, ImmutableList.of(
           new Transition("</(\\w+)\\b") {
             @Override

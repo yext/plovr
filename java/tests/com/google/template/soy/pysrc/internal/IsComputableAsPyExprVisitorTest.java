@@ -19,6 +19,7 @@ package com.google.template.soy.pysrc.internal;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.SharedTestUtils;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.SoyNode;
@@ -50,14 +51,14 @@ public class IsComputableAsPyExprVisitorTest extends TestCase {
   }
 
   public void testCallNode() {
-    runTestHelper("{call name=\".foo\" data=\"all\" /}", true);
-    runTestHelper("{call name=\".foo\" data=\"$boo\"}{param key=\"goo\" value=\"$moo\" /}{/call}",
+    runTestHelper("{call .foo data=\"all\" /}", true);
+    runTestHelper("{call .foo data=\"$boo\"}{param goo : $moo /}{/call}",
                   true);
-    runTestHelper("{call name=\".foo\" data=\"$boo\"}{param key=\"goo\"}Blah{/param}{/call}",
+    runTestHelper("{call .foo data=\"$boo\"}{param goo}Blah{/param}{/call}",
                   true);
     runTestHelper(
-        "{call name=\".foo\" data=\"$boo\"}"
-        + "  {param key=\"goo\"}"
+        "{call .foo data=\"$boo\"}"
+        + "  {param goo}"
         + "    {foreach $moo in $moose}"
         + "      {$moo}"
         + "    {/foreach}"
@@ -69,6 +70,7 @@ public class IsComputableAsPyExprVisitorTest extends TestCase {
   private static void runTestHelper(String soyNodeCode, boolean expectedResult) {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forTemplateContents(soyNodeCode).parse();
     SoyNode node = SharedTestUtils.getNode(soyTree, 0);
-    assertThat(new IsComputableAsPyExprVisitor().exec(node)).isEqualTo(expectedResult);
+    assertThat(new IsComputableAsPyExprVisitor(ExplodingErrorReporter.get()).exec(node))
+        .isEqualTo(expectedResult);
   }
 }

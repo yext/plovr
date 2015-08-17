@@ -16,13 +16,14 @@
 
 package com.google.template.soy.soytree;
 
+import static com.google.template.soy.soytree.AutoescapeMode.parseAutoEscapeMode;
+
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.BaseUtils;
@@ -30,7 +31,10 @@ import com.google.template.soy.basetree.SyntaxVersion;
 import com.google.template.soy.basetree.SyntaxVersionBound;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
 import com.google.template.soy.data.internalutils.NodeContentKinds;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.soytree.TemplateNode.SoyFileHeaderInfo;
+import com.google.template.soy.soytree.TemplateNodeBuilder.DeclInfo.OptionalStatus;
+import com.google.template.soy.soytree.TemplateNodeBuilder.DeclInfo.Type;
 import com.google.template.soy.soytree.defn.HeaderParam;
 import com.google.template.soy.soytree.defn.SoyDocParam;
 import com.google.template.soy.soytree.defn.TemplateParam;
@@ -41,7 +45,9 @@ import com.google.template.soy.types.parse.ParseException;
 import com.google.template.soy.types.parse.TypeParser;
 import com.google.template.soy.types.primitive.NullType;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,27 +69,68 @@ public abstract class TemplateNodeBuilder {
    *
    * <p>Important: Do not use outside of Soy code (treat as superpackage-private).
    */
-  public static class DeclInfo {
+  public static final class DeclInfo {
 
-    /** The command name of the decl tag. */
-    public final String cmdName;
-    /** The command text of the decl tag. */
-    public final String cmdText;
-    /** The SoyDoc string associated with the decl, or null if none. */
-    @Nullable public final String soyDoc;
+    /** The type of declaration (either regular param or injected param). */
+    public enum Type {
+      PARAM("@param"),
+      INJECTED_PARAM("@inject");
+
+      private final String name;
+
+      Type(String name) {
+        this.name = name;
+      }
+
+      @Override
+      public String toString() {
+        return name;
+      }
+    }
+
     /** Whether this is an optional parameter. */
-    @Nullable public final boolean optional;
+    public enum OptionalStatus {
+      REQUIRED,
+      OPTIONAL
+    }
 
-    public DeclInfo(String cmdName, String cmdText, String soyDoc, boolean optional) {
-      this.cmdName = cmdName;
+    private final Type type;
+    private final String cmdText;
+    private final OptionalStatus optionalStatus;
+    private final SourceLocation sourceLocation;
+    @Nullable private final String soyDoc;
+
+    public DeclInfo(
+        Type type,
+        OptionalStatus optionalStatus,
+        String cmdText,
+        @Nullable String soyDoc,
+        SourceLocation sourceLocation) {
+      this.type = type;
       this.cmdText = cmdText;
       this.soyDoc = soyDoc;
-      this.optional = optional;
+      this.sourceLocation = sourceLocation;
+      this.optionalStatus = optionalStatus;
+    }
+
+    public Type type() {
+      return type;
+    }
+
+    public String cmdText() {
+      return cmdText;
+    }
+
+    @Nullable public String soyDoc() {
+      return soyDoc;
     }
   }
 
   /** Info from the containing Soy file's header declarations. */
   protected final SoyFileHeaderInfo soyFileHeaderInfo;
+
+  /** For reporting parse errors. */
+  protected final ErrorReporter errorReporter;
 
   /** The registry of named types. */
   private final SoyTypeRegistry typeRegistry;
@@ -146,9 +193,11 @@ public abstract class TemplateNodeBuilder {
   protected TemplateNodeBuilder(
       SoyFileHeaderInfo soyFileHeaderInfo,
       SourceLocation sourceLocation,
+      ErrorReporter errorReporter,
       @Nullable SoyTypeRegistry typeRegistry) {
     this.soyFileHeaderInfo = soyFileHeaderInfo;
     this.sourceLocation = sourceLocation;
+    this.errorReporter = errorReporter;
     this.typeRegistry = typeRegistry;
     this.syntaxVersionBound = null;
     this.isSoyDocSet = false;
@@ -227,50 +276,57 @@ public abstract class TemplateNodeBuilder {
    * @param declInfos DeclInfo objects for the decls found in the template header.
    * @return This builder.
    */
-  public TemplateNodeBuilder setHeaderDecls(List<DeclInfo> declInfos) {
-
-    List<TemplateParam> params = Lists.newArrayList();
-
+  public TemplateNodeBuilder setHeaderDecls(Collection<DeclInfo> declInfos) {
+    List<TemplateParam> params = new ArrayList<>(declInfos.size());
     for (DeclInfo declInfo : declInfos) {
-
-      if (declInfo.cmdName.equals("@param") || declInfo.cmdName.equals("@inject")) {
-        Matcher cmdTextMatcher = HEADER_PARAM_DECL_CMD_TEXT_PATTERN.matcher(declInfo.cmdText);
-        if (! cmdTextMatcher.matches()) {
-          throw SoySyntaxException.createWithoutMetaInfo(
-              "Invalid @param declaration command text \"" + declInfo.cmdText + "\".");
-        }
-        String key = cmdTextMatcher.group(1);
-        if (! BaseUtils.isIdentifier(key)) {
-          throw SoySyntaxException.createWithoutMetaInfo(
-              "Invalid @param key '" + key + "' (must be an identifier).");
-        }
-        String typeSrc = cmdTextMatcher.group(2);
-        SoyType type;
-        boolean isInjected = declInfo.cmdName.equals("@inject");
-        boolean isRequired = true;
-        try {
-          Preconditions.checkNotNull(typeRegistry);
-          type = new TypeParser(typeSrc, typeRegistry).parseTypeDeclaration();
-          if (declInfo.optional) {
-            isRequired = false;
-            type = typeRegistry.getOrCreateUnionType(type, NullType.getInstance());
-          } else if (type instanceof UnionType && ((UnionType) type).isNullable()) {
-            isRequired = false;
-          }
-        } catch (ParseException e) {
-          throw SoySyntaxException.createWithoutMetaInfo(e.getMessage());
-        }
-        params.add(new HeaderParam(key, typeSrc, type, isRequired, isInjected, declInfo.soyDoc));
-
-      } else {
-        // The parser should never send us an illegal decl name.
-        throw new AssertionError();
-      }
+      params.add(forDeclInfo(declInfo));
     }
-
     this.addParams(params);
-
     return this;
+  }
+
+  /**
+   * Sets the template header decls.
+   * @param declInfos DeclInfo objects for the decls found in the template header.
+   * @return This builder.
+   */
+  public TemplateNodeBuilder setHeaderDecls(DeclInfo... declInfos) {
+    List<TemplateParam> params = new ArrayList<>(declInfos.length);
+    for (DeclInfo declInfo : declInfos) {
+      params.add(forDeclInfo(declInfo));
+    }
+    this.addParams(params);
+    return this;
+  }
+
+  private HeaderParam forDeclInfo(DeclInfo declInfo) {
+    Matcher cmdTextMatcher = HEADER_PARAM_DECL_CMD_TEXT_PATTERN.matcher(declInfo.cmdText);
+    if (!cmdTextMatcher.matches()) {
+      throw SoySyntaxException.createWithoutMetaInfo(
+          "Invalid " + declInfo.type + " declaration command text \"" + declInfo.cmdText + "\".");
+    }
+    String key = cmdTextMatcher.group(1);
+    if (!BaseUtils.isIdentifier(key)) {
+      throw SoySyntaxException.createWithoutMetaInfo(
+          "Invalid " + declInfo.type + " key '" + key + "' (must be an identifier).");
+    }
+    String typeSrc = cmdTextMatcher.group(2);
+    SoyType type;
+    boolean isInjected = declInfo.type == Type.INJECTED_PARAM;
+    boolean isRequired = true;
+    try {
+      Preconditions.checkNotNull(typeRegistry);
+      type = new TypeParser(typeSrc, typeRegistry).parseTypeDeclaration();
+      if (declInfo.optionalStatus == OptionalStatus.OPTIONAL) {
+        isRequired = false;
+        type = typeRegistry.getOrCreateUnionType(type, NullType.getInstance());
+      } else if (type instanceof UnionType && ((UnionType) type).isNullable()) {
+        isRequired = false;
+      }
+    } catch (ParseException e) {
+      throw SoySyntaxException.createWithoutMetaInfo(e.getMessage());
+    }
+    return new HeaderParam(key, typeSrc, type, isRequired, isInjected, declInfo.soyDoc);
   }
 
   /**
@@ -290,7 +346,7 @@ public abstract class TemplateNodeBuilder {
     }
 
     // Check params.
-    Set<String> seenParamKeys = Sets.newHashSet();
+    Set<String> seenParamKeys = new HashSet<>();
     for (TemplateParam param : this.params) {
       if (param.name().equals("ij")) {
         throw SoySyntaxException.createWithoutMetaInfo(
@@ -316,7 +372,7 @@ public abstract class TemplateNodeBuilder {
     AutoescapeMode autoescapeMode;
     String autoescapeModeStr = attributes.get("autoescape");
     if (autoescapeModeStr != null) {
-      autoescapeMode = AutoescapeMode.forAttributeValue(autoescapeModeStr);
+      autoescapeMode = parseAutoEscapeMode(autoescapeModeStr, sourceLocation, errorReporter);
     } else {
       autoescapeMode = soyFileHeaderInfo.defaultAutoescapeMode;  // inherit from file default
     }
@@ -486,7 +542,7 @@ public abstract class TemplateNodeBuilder {
     soyDoc = NEWLINE.matcher(soyDoc).replaceAll("\n");
 
     // Escape all @deprecated javadoc tags.
-    // TODO(user): add this to the specification and then also generate @Deprecated annotations
+    // TODO(cushon): add this to the specification and then also generate @Deprecated annotations
     soyDoc = soyDoc.replace("@deprecated", "&#64;deprecated");
 
     // Strip start/end tokens and spaces (including newlines if they occupy their own lines).
@@ -587,8 +643,8 @@ public abstract class TemplateNodeBuilder {
     public SyntaxVersion lowestSyntaxVersionBound;
 
     public SoyDocDeclsInfo() {
-      this.params = Lists.newArrayList();
-      this.incorrectSoyDocParamSrcs = Lists.newArrayListWithCapacity(0);
+      this.params = new ArrayList<>();
+      this.incorrectSoyDocParamSrcs = new ArrayList<>(0);
       this.lowestSyntaxVersionBound = null;
     }
   }

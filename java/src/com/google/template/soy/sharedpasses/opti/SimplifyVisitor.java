@@ -26,15 +26,15 @@ import com.google.template.soy.data.restricted.FloatData;
 import com.google.template.soy.data.restricted.IntegerData;
 import com.google.template.soy.data.restricted.NullData;
 import com.google.template.soy.data.restricted.StringData;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.BooleanNode;
 import com.google.template.soy.exprtree.ExprNode;
-import com.google.template.soy.exprtree.ExprNode.ConstantNode;
+import com.google.template.soy.exprtree.ExprNode.PrimitiveNode;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.exprtree.FloatNode;
 import com.google.template.soy.exprtree.IntegerNode;
 import com.google.template.soy.exprtree.StringNode;
 import com.google.template.soy.sharedpasses.render.RenderException;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.IfCondNode;
 import com.google.template.soy.soytree.IfElseNode;
@@ -101,7 +101,7 @@ public final class SimplifyVisitor extends AbstractSoyNodeVisitor<Void> {
 
     // Setup.
     nodeIdGen = nodeAsRoot.getNodeIdGenerator();
-    templateRegistry = new TemplateRegistry(nodeAsRoot);
+    templateRegistry = new TemplateRegistry(nodeAsRoot, errorReporter);
 
     // Simpify the subtree.
     super.exec(nodeAsRoot);
@@ -342,7 +342,7 @@ public final class SimplifyVisitor extends AbstractSoyNodeVisitor<Void> {
 
 
   private static boolean isConstant(ExprRootNode exprRoot) {
-    return exprRoot != null && exprRoot.getChild(0) instanceof ConstantNode;
+    return exprRoot != null && exprRoot.getRoot() instanceof PrimitiveNode;
   }
 
 
@@ -352,7 +352,7 @@ public final class SimplifyVisitor extends AbstractSoyNodeVisitor<Void> {
       return null;
     }
 
-    ExprNode expr = exprRoot.getChild(0);
+    ExprNode expr = exprRoot.getRoot();
     switch (expr.getKind()) {
       case NULL_NODE: return NullData.INSTANCE;
       case BOOLEAN_NODE: return BooleanData.forValue(((BooleanNode) expr).getValue());

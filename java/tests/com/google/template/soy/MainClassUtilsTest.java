@@ -22,8 +22,8 @@ import static com.google.template.soy.MainClassUtils.runInternal;
 import com.google.common.collect.ImmutableList;
 import com.google.template.soy.MainClassUtils.Main;
 import com.google.template.soy.base.SoySyntaxException;
-import com.google.template.soy.base.internal.ErrorPrettyPrinter;
 import com.google.template.soy.base.internal.SoyFileSupplier;
+import com.google.template.soy.error.ErrorPrettyPrinter;
 
 import junit.framework.TestCase;
 
@@ -40,7 +40,9 @@ public final class MainClassUtilsTest extends TestCase {
     assertThat(runInternal(new Main() {
       @Override
       public CompilationResult main() throws IOException {
-        return CompilationResult.success();
+        return new CompilationResult(
+            ImmutableList.<SoySyntaxException>of(),
+            new ErrorPrettyPrinter(ImmutableList.<SoyFileSupplier>of()));
       }
     })).isEqualTo(0);
   }

@@ -17,6 +17,8 @@
 package com.google.template.soy.jssrc.internal;
 
 import com.google.common.base.Preconditions;
+import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.AbstractExprNodeVisitor;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprNode.ParentExprNode;
@@ -25,11 +27,11 @@ import com.google.template.soy.jssrc.internal.TranslateToJsExprVisitor.Translate
 import com.google.template.soy.jssrc.restricted.JsExpr;
 import com.google.template.soy.jssrc.restricted.SoyJsSrcFunction;
 import com.google.template.soy.shared.internal.NonpluginFunction;
-import com.google.template.soy.soyparse.ErrorReporter;
 
 import java.util.Deque;
 import java.util.Map;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 
 /**
@@ -76,7 +78,8 @@ class JsExprTranslator {
    * @return The built JS expression.
    */
   public JsExpr translateToJsExpr(
-      ExprNode expr, String exprText, Deque<Map<String, JsExpr>> localVarTranslations) {
+      @Nullable ExprNode expr, @Nullable String exprText,
+      Deque<Map<String, JsExpr>> localVarTranslations) {
 
     if (expr != null &&
         (exprText == null ||
@@ -85,8 +88,12 @@ class JsExprTranslator {
       return translateToJsExprVisitorFactory.create(localVarTranslations).exec(expr);
     } else {
       // V1 expression.
+      SourceLocation sourceLocation = expr != null
+          ? expr.getSourceLocation()
+          : SourceLocation.UNKNOWN;
       Preconditions.checkNotNull(exprText);
-      return V1JsExprTranslator.translateToJsExpr(exprText, localVarTranslations);
+      return V1JsExprTranslator.translateToJsExpr(
+          exprText, sourceLocation, localVarTranslations, errorReporter);
     }
   }
 

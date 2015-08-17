@@ -18,23 +18,18 @@ package com.google.template.soy.soytree;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.template.soy.base.SourceLocation;
-import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.BaseUtils;
-import com.google.template.soy.basetree.SyntaxVersion;
+import com.google.template.soy.basetree.CopyState;
 import com.google.template.soy.basetree.SyntaxVersionBound;
-import com.google.template.soy.exprtree.ExprRootNode;
-import com.google.template.soy.internal.base.Pair;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.soytree.CommandTextAttributesParser.Attribute;
 import com.google.template.soy.soytree.defn.TemplateParam;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,10 +47,8 @@ public final class CallBasicNode extends CallNode {
 
   public static final SoyError MISSING_CALLEE_NAME
       = SoyError.of("Invalid ''call'' command missing callee name: '{'call {0}'}'.");
-  private static final SoyError BAD_CALLEE_NAME
+  public static final SoyError BAD_CALLEE_NAME
       = SoyError.of("Invalid callee name \"{0}\" for ''call'' command.");
-  private static final SoyError MULTIPLE_CALLEE_NAMES
-      = SoyError.of("call: multiple callee names: `{0}`, `{1}`");
 
   /**
    * Helper class used by constructors. Encapsulates all the info derived from the command
@@ -68,23 +61,21 @@ public final class CallBasicNode extends CallNode {
     private final String srcCalleeName;
 
     CommandTextInfo(
-        String commandText, String srcCalleeName, boolean isPassingData,
-        @Nullable ExprRootNode dataExpr, @Nullable String userSuppliedPlaceholderName,
+        String commandText, String srcCalleeName, DataAttribute dataAttr,
+        @Nullable String userSuppliedPlaceholderName,
         @Nullable SyntaxVersionBound syntaxVersionBound) {
-      super(commandText, isPassingData, dataExpr, userSuppliedPlaceholderName, syntaxVersionBound);
+      super(commandText, dataAttr, userSuppliedPlaceholderName, syntaxVersionBound);
       this.srcCalleeName = srcCalleeName;
     }
   }
 
-  /** Pattern for a callee name not listed as an attribute name="...". */
+  /** Pattern for a callee name not listed as an attribute function="...". */
   private static final Pattern NONATTRIBUTE_CALLEE_NAME =
-      Pattern.compile("^ (?! name=\" | function=\") [.\\w]+ (?= \\s | $)", Pattern.COMMENTS);
+      Pattern.compile("^\\s* ([.\\w]+) (?= \\s | $)", Pattern.COMMENTS);
 
   /** Parser for the command text. */
   private static final CommandTextAttributesParser ATTRIBUTES_PARSER =
       new CommandTextAttributesParser("call",
-          new Attribute("name", Attribute.ALLOW_ALL_VALUES, null),
-          new Attribute("function", Attribute.ALLOW_ALL_VALUES, null),  // V1
           new Attribute("data", Attribute.ALLOW_ALL_VALUES, null));
 
   /** The callee name string as it appears in the source code. */
@@ -127,8 +118,8 @@ public final class CallBasicNode extends CallNode {
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private CallBasicNode(CallBasicNode orig) {
-    super(orig);
+  private CallBasicNode(CallBasicNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.sourceCalleeName = orig.sourceCalleeName;
     this.calleeName = orig.calleeName;
     this.paramsToRuntimeTypeCheck = orig.paramsToRuntimeTypeCheck;
@@ -171,26 +162,25 @@ public final class CallBasicNode extends CallNode {
     return calleeName;
   }
 
-  @Override public CallBasicNode clone() {
-    return new CallBasicNode(this);
+  @Override public CallBasicNode copy(CopyState copyState) {
+    return new CallBasicNode(this, copyState);
   }
 
   public static final class Builder {
 
-    public static final CallBasicNode ERROR = new Builder(-1, SourceLocation.UNKNOWN)
-        .commandText(".error")
-        .buildAndThrowIfInvalid(); // guaranteed to be valid
+    private static CallBasicNode error() {
+      return new Builder(-1, SourceLocation.UNKNOWN)
+          .commandText(".error")
+          .build(ExplodingErrorReporter.get()); // guaranteed to be valid
+    }
 
     private final int id;
     private final SourceLocation sourceLocation;
 
     private ImmutableList<String> escapingDirectiveNames = ImmutableList.of();
-    private boolean isPassingData;
-    private boolean isPassingAllData;
-    private boolean useV1FunctionAttrForCalleeName;
+    private DataAttribute dataAttr = DataAttribute.none();
 
     @Nullable private String commandText;
-    @Nullable private ExprRootNode dataExpr;
     @Nullable private String userSuppliedPlaceholderName;
     @Nullable private String calleeName;
     @Nullable private String sourceCalleeName;
@@ -211,23 +201,13 @@ public final class CallBasicNode extends CallNode {
       return this;
     }
 
-    public Builder dataExpr(ExprRootNode dataExpr) {
-      this.dataExpr = dataExpr;
-      return this;
-    }
-
     public Builder escapingDirectiveNames(ImmutableList<String> escapingDirectiveNames) {
       this.escapingDirectiveNames = escapingDirectiveNames;
       return this;
     }
 
-    public Builder isPassingData(boolean isPassingData) {
-      this.isPassingData = isPassingData;
-      return this;
-    }
-
-    public Builder isPassingAllData(boolean isPassingAllData) {
-      this.isPassingAllData = isPassingAllData;
+    public Builder dataAttribute(DataAttribute dataAttr) {
+      this.dataAttr = dataAttr;
       return this;
     }
 
@@ -246,31 +226,13 @@ public final class CallBasicNode extends CallNode {
       return this;
     }
 
-    public Builder useV1FunctionAttrForCalleeName(boolean useV1FunctionAttrForCalleeName) {
-      this.useV1FunctionAttrForCalleeName = useV1FunctionAttrForCalleeName;
-      return this;
-    }
-
-    /**
-     * @throws SoySyntaxException if the data given to the Builder cannot be used to construct
-     *     a {@link CallBasicNode}.
-     * TODO(user): remove. The parser already has an ErrorManager. This method exists
-     *     solely for higher layers (like visitors) that do not already have ErrorManagers.
-     */
-    public CallBasicNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorManager = new TransitionalThrowingErrorReporter();
-      CallBasicNode node = build(errorManager);
-      errorManager.throwIfErrorsPresent();
-      return node;
-    }
-
     public CallBasicNode build(ErrorReporter errorReporter) {
       Checkpoint c = errorReporter.checkpoint();
       CommandTextInfo commandTextInfo = commandText != null
           ? parseCommandText(errorReporter)
           : buildCommandText();
       if (errorReporter.errorsSince(c)) {
-        return ERROR;
+        return error();
       }
       CallBasicNode callBasicNode = new CallBasicNode(
           id, sourceLocation, commandTextInfo, escapingDirectiveNames, calleeName);
@@ -287,90 +249,44 @@ public final class CallBasicNode extends CallNode {
       String cmdTextForParsing = commandText;
 
       SyntaxVersionBound syntaxVersionBound = null;
-      List<String> srcCalleeNames = Lists.newArrayList();
 
       Matcher ncnMatcher = NONATTRIBUTE_CALLEE_NAME.matcher(cmdTextForParsing);
       if (ncnMatcher.find()) {
-        srcCalleeNames.add(ncnMatcher.group());
+        sourceCalleeName = ncnMatcher.group(1);
         cmdTextForParsing = cmdTextForParsing.substring(ncnMatcher.end()).trim();
-      }
-
-      Map<String, String> attributes
-          = ATTRIBUTES_PARSER.parse(cmdTextForParsing, errorReporter, sourceLocation);
-
-      String nameAttr = attributes.get("name");
-      if (nameAttr != null) {
-        srcCalleeNames.add(nameAttr);
-        // Explicit attribute 'name' is only allowed in syntax versions 2.1 and below.
-        SyntaxVersionBound newSyntaxVersionBound = new SyntaxVersionBound(
-            SyntaxVersion.V2_2,
-            String.format(
-                "Callee name should be written directly instead of within attribute 'name' (i.e." +
-                    " use {call %s} instead of {call name=\"%s\"}.",
-                nameAttr, nameAttr));
-        syntaxVersionBound =
-            SyntaxVersionBound.selectLower(syntaxVersionBound, newSyntaxVersionBound);
-      }
-      String functionAttr = attributes.get("function");
-      if (functionAttr != null) {
-        srcCalleeNames.add(functionAttr);
-        SyntaxVersionBound newSyntaxVersionBound = new SyntaxVersionBound(
-            SyntaxVersion.V2_0, "The 'function' attribute in a 'call' tag is a Soy V1 artifact.");
-        syntaxVersionBound =
-            SyntaxVersionBound.selectLower(syntaxVersionBound, newSyntaxVersionBound);
-      }
-
-      if (srcCalleeNames.isEmpty()) {
-        errorReporter.report(sourceLocation, MISSING_CALLEE_NAME, commandText);
-      } else if (srcCalleeNames.size() == 1) {
-        sourceCalleeName = srcCalleeNames.get(0);
         if (! (BaseUtils.isIdentifierWithLeadingDot(sourceCalleeName) ||
             BaseUtils.isDottedIdentifier(sourceCalleeName))) {
           errorReporter.report(sourceLocation, BAD_CALLEE_NAME, sourceCalleeName);
         }
       } else {
-        errorReporter.report(
-            sourceLocation, MULTIPLE_CALLEE_NAMES, srcCalleeNames.get(0), srcCalleeNames.get(1));
+        errorReporter.report(sourceLocation, MISSING_CALLEE_NAME, commandText);
       }
 
-      Pair<Boolean, ExprRootNode> dataAttrInfo =
+      Map<String, String> attributes
+          = ATTRIBUTES_PARSER.parse(cmdTextForParsing, errorReporter, sourceLocation);
+
+      DataAttribute dataAttrInfo =
           parseDataAttributeHelper(attributes.get("data"), sourceLocation, errorReporter);
 
       return new CommandTextInfo(
-          cmdText, sourceCalleeName, dataAttrInfo.first, dataAttrInfo.second,
-          userSuppliedPlaceholderName, syntaxVersionBound);
+          cmdText, sourceCalleeName, dataAttrInfo, userSuppliedPlaceholderName, syntaxVersionBound);
     }
 
     // TODO(user): eliminate side-channel parsing. This should be a part of the grammar.
     private CommandTextInfo buildCommandText() {
-      if (isPassingAllData) {
-        Preconditions.checkArgument(isPassingData);
-      }
-      if (dataExpr != null) {
-        Preconditions.checkArgument(isPassingData && !isPassingAllData);
-      }
-
-      String commandText = "";
-      if (useV1FunctionAttrForCalleeName) {
-        Preconditions.checkArgument(
-            syntaxVersionBound != null && syntaxVersionBound.syntaxVersion == SyntaxVersion.V2_0);
-        commandText += "function=\"" + sourceCalleeName + '"';
-      } else {
-        commandText += sourceCalleeName;
-      }
-      if (isPassingAllData) {
+      String commandText = sourceCalleeName;
+      if (dataAttr.isPassingAllData()) {
         commandText += " data=\"all\"";
-      } else if (isPassingData) {
-        assert dataExpr != null;  // suppress warnings
-        commandText += " data=\"" + dataExpr.toSourceString() + '"';
+      } else if (dataAttr.isPassingData()) {
+        assert dataAttr.dataExpr() != null;  // suppress warnings
+        commandText += " data=\"" + dataAttr.dataExpr().toSourceString() + '"';
       }
       if (userSuppliedPlaceholderName != null) {
         commandText += " phname=\"" + userSuppliedPlaceholderName + '"';
       }
 
       return new CommandTextInfo(
-          commandText, sourceCalleeName, isPassingData, dataExpr, userSuppliedPlaceholderName,
-          syntaxVersionBound);
+          commandText, sourceCalleeName, dataAttr, userSuppliedPlaceholderName, syntaxVersionBound);
     }
   }
 }

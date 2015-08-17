@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
 
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.Map;
 
 import javax.annotation.Nullable;
@@ -121,10 +122,6 @@ public final class Context {
   public static final Context HTML_PCDATA = new Context(State.HTML_PCDATA);
 
 
-  /** A special state transitioned to if the CSS/HTML/JS parser cannot compute the next context. */
-  public static final Context ERROR = new Context(State.ERROR);
-
-
   /** Returns a context that differs only in the state. */
   public Context derive(State state) {
     return state == this.state ? this : toBuilder().withState(state).build();
@@ -149,13 +146,11 @@ public final class Context {
   /**
    * The context reached after escaping content using the given mode from this context.
    * This makes an optimistic assumption that the escaped string is not empty, but in practice this
-   * makes no difference except to minor differences such as that between {@link UriPart#START} and
-   * {@link UriPart#PRE_QUERY}.
+   * makes little difference, except {@link UriPart#START} and subsequent states, but it is
+   * the wildcard state {@link UriPart#MAYBE_VARIABLE_SCHEME}.
    */
-  public Context getContextAfterEscaping(@Nullable EscapingMode mode) {
-    if (mode == null) {
-      return ERROR;
-    }
+  public Context getContextAfterEscaping(EscapingMode mode) {
+    Preconditions.checkNotNull(mode);
     if (mode == EscapingMode.ESCAPE_JS_VALUE) {
       switch (slashType) {
         case DIV_OP:
@@ -176,7 +171,11 @@ public final class Context {
           .withAttrType(AttributeType.PLAIN_TEXT)
           .build();
     } else if (uriPart == UriPart.START) {
-      return derive(UriPart.PRE_QUERY);
+      // TODO(gboyer): When we start enforcing strict URI syntax, make it an error to call this if
+      // we're already in MAYBE*_SCHEME, because it is possible in a non-strict contextual template
+      // that someone would use noAutoescape to try and get around the requirement of no print
+      // statements in MAYBE*_SCHEME.
+      return derive(UriPart.MAYBE_VARIABLE_SCHEME);
     }
     return this;
   }
@@ -256,9 +255,10 @@ public final class Context {
   public ImmutableList<EscapingMode> getEscapingModes() {
     EscapingMode escapingMode = state.escapingMode;
 
-    // Short circuit on the error return case first.
+    // Short circuit on the error case first.
     if (escapingMode == null) {
-      return ImmutableList.<EscapingMode>of();
+      throw SoyAutoescapeException.createWithoutMetaInfo(
+          "Soy doesn't support dynamic values in JS and CSS comments.");
     }
 
     // Any additional mode that allows the primary escaping mode's output language to be
@@ -290,7 +290,33 @@ public final class Context {
         //     {/else}
         //     {$baz}">
         // Is {$baz} part of a query or part of a path?
-        return ImmutableList.<EscapingMode>of();
+        // TODO(gboyer): In these unknown states, it might be interesting to indicate what the two
+        // contexts were.
+        throw SoyAutoescapeException.createWithoutMetaInfo(
+            "Cannot determine which part of the URL this dynamic value is in. Most likely, a"
+            + " preceding conditional block began a ?query or #fragment, but only on one branch.");
+      case MAYBE_VARIABLE_SCHEME:
+        // Is $y in the scheme, path, query, or fragment below?
+        //   <a href="{$x}{$y}">
+        throw SoyAutoescapeException.createWithoutMetaInfo(
+            "Soy can't prove this URI concatenation has a safe scheme at compile time."
+            + " Either combine adjacent print statements (e.g. {$x + $y} instead of {$x}{$y}),"
+            + " or introduce disambiguating characters"
+            + " (e.g. {$x}/{$y}, {$x}?y={$y}, {$x}&y={$y}, {$x}#{$y})");
+      case MAYBE_SCHEME:
+        // Could $x cause a bad scheme, e.g. if it's "script:deleteMyAccount()"?
+        //   <a href="java{$x}">
+        throw SoyAutoescapeException.createWithoutMetaInfo(
+            "Soy can't prove this URI has a safe scheme at compile time. Either make sure one of"
+            + " ':', '/', '?', or '#' comes before the dynamic value (e.g. foo/{$bar}), or move the"
+            + " print statement to the start of the URI to enable runtime validation"
+            + " (e.g. href=\"{'foo' + $bar}\" instead of href=\"foo{$bar}\").");
+      case DANGEROUS_SCHEME:
+        // After javascript: or other dangerous schemes.
+        throw SoyAutoescapeException.createWithoutMetaInfo(
+            "Dynamic values are not permitted in javascript: URIs; either hard-code the"
+            + " entire URI, or pass in a SanitizedContent or SafeUri object, or use an existing"
+            + " filter like |filterImageDataUri.");
       default:
         break;
     }
@@ -453,15 +479,6 @@ public final class Context {
 
 
   /**
-   * True if this context is in the {@link State#ERROR error} state.
-   * @see #ERROR
-   */
-  public boolean isErrorContext() {
-    return state == State.ERROR;
-  }
-
-
-  /**
    * @deprecated Prefer comparing states or predicates like isValidEndContext
    */
   @Deprecated
@@ -517,7 +534,7 @@ public final class Context {
   private static final int N_JS_SLASH_BITS = 2;
 
   /** The number of bits needed to store a {@link UriPart} value. */
-  private static final int N_URI_PART_BITS = 3;
+  private static final int N_URI_PART_BITS = 4;
 
   static {
     // We'd better have enough bits in an int.
@@ -540,30 +557,58 @@ public final class Context {
    * A context which is consistent with both contexts.
    * This should be used when multiple execution paths join, such as the path through the
    * then-clause of an <code>{if}</code> command and the path through the else-clause.
-   * @return {@link #ERROR} when there is no such context consistent with both.
+   * @return Optional.absent() when there is no such context consistent with both.
    */
-  public static Context union(Context a, Context b) {
+  static Optional<Context> union(Context a, Context b) {
     // TODO(gboyer): Add a test that TEXT doesn't union with any other type.
     if (a.equals(b)) {
-      return a;
+      return Optional.of(a);
     }
 
     if (a.templateNestDepth != b.templateNestDepth) {
-      return ERROR;
+      return Optional.absent();
     }
 
     if (a.equals(b.derive(a.slashType))) {
-      return a.derive(JsFollowingSlash.UNKNOWN);
+      return Optional.of(a.derive(JsFollowingSlash.UNKNOWN));
     }
 
     if (a.equals(b.derive(a.uriPart))) {
-      return a.derive(
-          // If the parts differ but neither could be in the fragment then a ? will conclusively
-          // transition into the query state, so use UKNNOWN_PRE_FRAGMENT to allow {print} commands
-          // after '?'.  With unknown, {print}s are only allowed after a '#'.
-          a.uriPart != UriPart.FRAGMENT && b.uriPart != UriPart.FRAGMENT &&
-          a.uriPart != UriPart.UNKNOWN && b.uriPart != UriPart.UNKNOWN ?
-          UriPart.UNKNOWN_PRE_FRAGMENT : UriPart.UNKNOWN);
+      if (a.uriPart == UriPart.DANGEROUS_SCHEME || b.uriPart == UriPart.DANGEROUS_SCHEME) {
+        // Dangerous schemes are poison.
+        return Optional.of(a.derive(UriPart.DANGEROUS_SCHEME));
+      }
+      if (a.uriPart != UriPart.FRAGMENT && b.uriPart != UriPart.FRAGMENT
+          && a.uriPart != UriPart.UNKNOWN && b.uriPart != UriPart.UNKNOWN) {
+        if (a.uriPart == UriPart.MAYBE_VARIABLE_SCHEME
+            || b.uriPart == UriPart.MAYBE_VARIABLE_SCHEME) {
+          // This is the case you might see on a URL that starts with a print statement, and one
+          // branch has a slash or ampersand but the other doesn't.  Re-entering
+          // MAYBE_VARIABLE_SCHEME allows us to pretend that the last branch was just part of the
+          // leading print statement, which leaves us in a relatively-unknown state, but no more
+          // unknown had it just been completely opaque.
+          //
+          // Good Example 1: {$urlWithQuery}{if $a}&a={$a}{/if}{if $b}&b={$b}{/if}
+          // In this example, the first "if" statement has two branches:
+          // - "true": {$urlWithQuey}&a={$a} looks like a QUERY due to hueristics
+          // - "false": {$urlWithQuery} only, which Soy doesn't know at compile-time to actually
+          // have a query, and it remains in MAYBE_VARIABLE_SCHEME.
+          // Instead of yielding UNKNOWN, this yields MAYBE_VARIABLE_SCHEME, which the second
+          // {if $b} can safely deal with.
+          //
+          // Good Example 2: {$base}{if $a}/a{/if}{if $b}/b{/if}
+          // In this, one branch transitions definitely into an authority or path, but the other
+          // might not. However, we can remain in MAYBE_VARIABLE_SCHEME safely.
+          //
+          // Malformed, but still safe from XSS: {$base}{if $a}?a={$a}{else}/b{/if}?c={$c}
+          // In this, the resulting URL is non-sensical. However, in all paths, because a question
+          // mark or slash is seen, it is impossible to set scheme, and safe from XSS. Furthermore,
+          // $a and $c are percent-encoded like a query param, so are limited in scope.
+          return Optional.of(a.derive(UriPart.MAYBE_VARIABLE_SCHEME));
+        }
+        return Optional.of(a.derive(UriPart.UNKNOWN_PRE_FRAGMENT));
+      }
+      return Optional.of(a.derive(UriPart.UNKNOWN));
     }
 
     // Order by state so that we don't have to duplicate tests below.
@@ -578,7 +623,7 @@ public final class Context {
     if (a.state == State.HTML_TAG_NAME && b.state == State.HTML_TAG) {
       // We do not need to compare a.elType and b.elType since in HTML_TAG_NAME,
       // there is no tag name, so no loss of information.
-      return b;
+      return Optional.of(b);
     }
 
     if (a.state == State.HTML_TAG && a.elType == b.elType) {
@@ -589,11 +634,20 @@ public final class Context {
           // In an attribute value ended by a delimiter.
           b.delimType == AttributeEndDelimiter.SPACE_OR_TAG_END) {
         // TODO: do we need to require a space before any new attribute name?
-        return a;
+        return Optional.of(a);
       }
     }
 
-    return ERROR;
+    return Optional.absent();
+  }
+
+  static Optional<Context> union(Iterable<Context> contexts) {
+    Iterator<Context> iterator = contexts.iterator();
+    Optional<Context> context = Optional.of(iterator.next());
+    while (iterator.hasNext() && context.isPresent()) {
+      context = union(context.get(), iterator.next());
+    }
+    return context;
   }
 
   @Override
@@ -878,10 +932,7 @@ public final class Context {
     URI(EscapingMode.NORMALIZE_URI),
 
     /** Plain text; no escaping. */
-    TEXT(EscapingMode.TEXT),
-
-    /** Not inside any valid HTML/CSS/JS construct. */
-    ERROR,
+    TEXT(EscapingMode.TEXT)
     ;
 
     /**
@@ -1043,11 +1094,41 @@ public final class Context {
     /** Not in a URI. */
     NONE,
 
-    /** Where a scheme might be seen.  At ^ in {@code ^http://host/path?k=v#frag}. */
+    /**
+     * At the absolute beginning of a URI.
+     *
+     * <p>At ^ in {@code ^http://host/path?k=v#frag} or {@code ^foo/bar?a=1}.
+     */
     START,
 
+    /**
+     * After a print statement in the beginning of a URI, where it's still possible to be in the
+     * scheme.
+     *
+     * <p>For example, after {@code href=&quot;&#123;$x&#125;}, it's hard to know what will happen.
+     * For example, if $x is "java" (a perfectly valid relative URI on its own), then
+     * "script:alert(1)" would execute as Javascript. But if $x is "java" followed by
+     * "/test.html", it's a relative URI.
+     *
+     * <p>This state is kept until we see anything that's hard-coded that makes it clear that we've
+     * left the scheme context; while remaining in this state, print statements and colons are
+     * forbidden, since we don't want what looks like a relative URI to set the scheme.
+     */
+    MAYBE_VARIABLE_SCHEME,
+
+    /**
+     * Still possibly in the scheme, though it could also be a relative path, but no print
+     * statements have been seen yet.
+     *
+     * <p>For example, between carets in {@code h^ttp^://host/path} or {@code f^oo^/bar.html}.
+     *
+     * <p>This is similar to MAYBE_VARIABLE_SCHEME in that print statements are forbidden; however,
+     * colons are allowed and transition to AUTHORITY_OR_PATH.
+     */
+    MAYBE_SCHEME,
+
     /** In the scheme, authority, or path.  Between ^s in {@code h^ttp://host/path^?k=v#frag}. */
-    PRE_QUERY,
+    AUTHORITY_OR_PATH,
 
     /** In the query portion.  Between ^s in {@code http://host/path?^k=v^#frag}*/
     QUERY,
@@ -1060,6 +1141,9 @@ public final class Context {
 
     /** Not {@link #NONE}, but unknown.  Used to join different contexts. */
     UNKNOWN,
+
+    /** A known-dangerous scheme where dynamic content is forbidden. */
+    DANGEROUS_SCHEME
     ;
   }
 

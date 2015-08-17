@@ -81,7 +81,7 @@ public class RawTextContextUpdaterTest extends TestCase {
         "HTML_PCDATA", "<script src=/foo#", "URI SCRIPT URI SPACE_OR_TAG_END FRAGMENT");
     assertTransition("HTML_PCDATA", "<img src=", "HTML_BEFORE_ATTRIBUTE_VALUE NORMAL URI");
     assertTransition(
-        "HTML_PCDATA", "<a href=mailto:", "URI NORMAL URI SPACE_OR_TAG_END PRE_QUERY");
+        "HTML_PCDATA", "<a href=mailto:", "URI NORMAL URI SPACE_OR_TAG_END AUTHORITY_OR_PATH");
     assertTransition(
         "HTML_PCDATA", "<input type=button value= onclick=",
         "HTML_BEFORE_ATTRIBUTE_VALUE NORMAL SCRIPT");
@@ -186,7 +186,7 @@ public class RawTextContextUpdaterTest extends TestCase {
         "CSS TEXTAREA STYLE SPACE_OR_TAG_END");
     assertTransition(
         "HTML_BEFORE_ATTRIBUTE_VALUE NORMAL URI", "/",
-        "URI NORMAL URI SPACE_OR_TAG_END PRE_QUERY");
+        "URI NORMAL URI SPACE_OR_TAG_END AUTHORITY_OR_PATH");
     assertTransition(
         "HTML_BEFORE_ATTRIBUTE_VALUE TITLE PLAIN_TEXT", "\"",
         "HTML_NORMAL_ATTR_VALUE TITLE PLAIN_TEXT DOUBLE_QUOTE");
@@ -246,7 +246,7 @@ public class RawTextContextUpdaterTest extends TestCase {
     assertTransition("CSS", "url(/search?q=", "CSS_URI QUERY");
     assertTransition("CSS", "url(  ", "CSS_URI START");
     assertTransition("CSS", "url('", "CSS_SQ_URI START");
-    assertTransition("CSS", "url('//", "CSS_SQ_URI PRE_QUERY");
+    assertTransition("CSS", "url('//", "CSS_SQ_URI AUTHORITY_OR_PATH");
     assertTransition("CSS", "url('/search?q=", "CSS_SQ_URI QUERY");
     assertTransition("CSS", "url(\"", "CSS_DQ_URI START");
     assertTransition("CSS", "url(\"/search?q=", "CSS_DQ_URI QUERY");
@@ -301,18 +301,19 @@ public class RawTextContextUpdaterTest extends TestCase {
     assertTransition("CSS_URI START", "/search?q=cute+bunnies", "CSS_URI QUERY");
     assertTransition("CSS_URI START", "#anchor)", "CSS");
     assertTransition("CSS_URI START", "#anchor )", "CSS");
-    assertTransition("CSS_URI START", "/do+not+panic", "CSS_URI PRE_QUERY");
-    assertTransition("CSS_SQ_URI START", "/don%27t+panic", "CSS_SQ_URI PRE_QUERY");
-    assertTransition("CSS_SQ_URI START", "Muhammed+\"The+Greatest!\"+Ali", "CSS_SQ_URI PRE_QUERY");
-    assertTransition("CSS_SQ_URI START", "(/don%27t+panic)", "CSS_SQ_URI PRE_QUERY");
+    assertTransition("CSS_URI START", "/do+not+panic", "CSS_URI AUTHORITY_OR_PATH");
+    assertTransition("CSS_SQ_URI START", "/don%27t+panic", "CSS_SQ_URI AUTHORITY_OR_PATH");
+    assertTransition("CSS_SQ_URI START", "Muhammed+\"The+Greatest!\"+Ali",
+        "CSS_SQ_URI MAYBE_SCHEME");
+    assertTransition("CSS_SQ_URI START", "(/don%27t+panic)", "CSS_SQ_URI AUTHORITY_OR_PATH");
     assertTransition(
-        "CSS_DQ_URI START", "Muhammed+%22The+Greatest!%22+Ali", "CSS_DQ_URI PRE_QUERY");
-    assertTransition("CSS_DQ_URI START", "/don't+panic", "CSS_DQ_URI PRE_QUERY");
+        "CSS_DQ_URI START", "Muhammed+%22The+Greatest!%22+Ali", "CSS_DQ_URI MAYBE_SCHEME");
+    assertTransition("CSS_DQ_URI START", "/don't+panic", "CSS_DQ_URI AUTHORITY_OR_PATH");
     assertTransition("CSS_SQ_URI START", "#foo'", "CSS");
     assertTransition(
         "CSS_URI NORMAL STYLE SPACE_OR_TAG_END START", ")", "CSS NORMAL STYLE SPACE_OR_TAG_END");
-    assertTransition(
-        "CSS_DQ_URI NORMAL STYLE SINGLE_QUOTE PRE_QUERY", "\"", "CSS NORMAL STYLE SINGLE_QUOTE");
+    assertTransition("CSS_DQ_URI NORMAL STYLE SINGLE_QUOTE AUTHORITY_OR_PATH", "\"",
+        "CSS NORMAL STYLE SINGLE_QUOTE");
     assertTransition(
         "CSS_SQ_URI NORMAL STYLE DOUBLE_QUOTE FRAGMENT", "#x'", "CSS NORMAL STYLE DOUBLE_QUOTE");
   }
@@ -480,23 +481,56 @@ public class RawTextContextUpdaterTest extends TestCase {
 
   public final void testUri() throws Exception {
     assertTransition("URI START", "", "URI START");
-    assertTransition("URI START", ".", "URI PRE_QUERY");
-    assertTransition("URI START", "/", "URI PRE_QUERY");
+    assertTransition("URI START", ".", "URI MAYBE_SCHEME");
+    assertTransition("URI START", "/", "URI AUTHORITY_OR_PATH");
     assertTransition("URI START", "#", "URI FRAGMENT");
-    assertTransition("URI START", "x", "URI PRE_QUERY");
+    assertTransition("URI START", "x", "URI MAYBE_SCHEME");
+    assertTransition("URI START", "x:", "URI AUTHORITY_OR_PATH");
     assertTransition("URI START", "?", "URI QUERY");
+    assertTransition("URI START", "&", "URI MAYBE_SCHEME");
+    assertTransition("URI START", "=", "URI MAYBE_SCHEME");
+    assertTransition("URI START", "javascript:", "URI DANGEROUS_SCHEME");
+    assertTransition("URI START", "JavaScript:", "URI DANGEROUS_SCHEME");
+    assertTransition("URI START", "not-javascript:", "URI AUTHORITY_OR_PATH");
+
     assertTransition("URI QUERY", "", "URI QUERY");
     assertTransition("URI QUERY", ".", "URI QUERY");
     assertTransition("URI QUERY", "/", "URI QUERY");
     assertTransition("URI QUERY", "#", "URI FRAGMENT");
     assertTransition("URI QUERY", "x", "URI QUERY");
     assertTransition("URI QUERY", "&", "URI QUERY");
+    assertTransition("URI QUERY", "javascript:", "URI QUERY");
+
     assertTransition("URI FRAGMENT", "", "URI FRAGMENT");
     assertTransition("URI FRAGMENT", "?", "URI FRAGMENT");
-  }
+    assertTransition("URI FRAGMENT", "javascript:", "URI FRAGMENT");
 
-  public final void testError() throws Exception {
-    assertTransition("ERROR", "/*//'\"\r\n\f\n\rFoo", "ERROR");
+    assertTransition("URI MAYBE_SCHEME", ":", "URI AUTHORITY_OR_PATH");
+    assertTransition("URI MAYBE_SCHEME", ".", "URI MAYBE_SCHEME");
+    assertTransition("URI MAYBE_SCHEME", "foo.bar", "URI MAYBE_SCHEME"); // Schemes can have a dot.
+    assertTransition("URI MAYBE_SCHEME", "/", "URI AUTHORITY_OR_PATH");
+    assertTransition("URI MAYBE_SCHEME", "/foo", "URI AUTHORITY_OR_PATH");
+    assertTransition("URI MAYBE_SCHEME", "?", "URI QUERY");
+    assertTransition("URI MAYBE_SCHEME", "blah?blah", "URI QUERY");
+    assertTransition("URI MAYBE_SCHEME", "#", "URI FRAGMENT");
+    // If we have a hard-coded prefix, & and = don't do anything.
+    assertTransition("URI MAYBE_SCHEME", "=", "URI MAYBE_SCHEME");
+    assertTransition("URI MAYBE_SCHEME", "&", "URI MAYBE_SCHEME");
+    // We don't care about schemes that end with javascript:.
+    assertTransition("URI MAYBE_SCHEME", "javascript:", "URI AUTHORITY_OR_PATH");
+
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", ".", "URI MAYBE_VARIABLE_SCHEME");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "foo.bar", "URI MAYBE_VARIABLE_SCHEME");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "/", "URI AUTHORITY_OR_PATH");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "foo/bar", "URI AUTHORITY_OR_PATH");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "?", "URI QUERY");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "#", "URI FRAGMENT");
+    // If we have a variable prefix, we use & and = to heuristically transition.
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "=", "URI QUERY");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "&", "URI QUERY");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "bah&foo=", "URI QUERY");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", ":", "ERROR");
+    assertTransition("URI MAYBE_VARIABLE_SCHEME", "javascript:", "ERROR");
   }
 
   public final void testRcdata() throws Exception {
@@ -541,8 +575,17 @@ public class RawTextContextUpdaterTest extends TestCase {
   }
 
   private static void assertTransition(String from, String rawText, String to) throws Exception {
-    Context after = RawTextContextUpdater.processRawText(
-        new RawTextNode(0, rawText, SourceLocation.UNKNOWN), parseContext(from)).getEndContext();
+    Context after;
+    try {
+      after = RawTextContextUpdater.processRawText(
+          new RawTextNode(0, rawText, SourceLocation.UNKNOWN), parseContext(from)).getEndContext();
+    } catch (SoyAutoescapeException e) {
+      if (!to.equals("ERROR")) {
+        throw new AssertionError("Expected context (" + to + ") but got an exception", e);
+      } else {
+        return; // Good!
+      }
+    }
     // Assert against the toString() for simpler test authoring -- if a developer misspells the
     // "to" context, they'll see a useful string-based diff.
     assertWithMessage(rawText).that(after.toString()).isEqualTo("(Context " + to + ")");
@@ -550,7 +593,7 @@ public class RawTextContextUpdaterTest extends TestCase {
 
   private static Context parseContext(String text) {
     Queue<String> parts = Lists.newLinkedList(Arrays.asList(text.split(" ")));
-    Context.Builder builder = Context.ERROR.toBuilder();
+    Context.Builder builder = Context.HTML_PCDATA.toBuilder();
     builder.withState(Context.State.valueOf(parts.remove()));
     if (!parts.isEmpty()) {
       try {

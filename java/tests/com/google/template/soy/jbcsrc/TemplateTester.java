@@ -24,32 +24,76 @@ import com.google.common.truth.FailureStrategy;
 import com.google.common.truth.Subject;
 import com.google.common.truth.SubjectFactory;
 import com.google.common.truth.Truth;
+import com.google.inject.AbstractModule;
+import com.google.inject.Guice;
+import com.google.inject.Injector;
+import com.google.inject.Provides;
+import com.google.template.soy.ErrorReporterModule;
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.basicdirectives.BasicDirectivesModule;
+import com.google.template.soy.basicfunctions.BasicFunctionsModule;
 import com.google.template.soy.data.SoyRecord;
-import com.google.template.soy.data.SoyValueProvider;
-import com.google.template.soy.data.internal.ParamStore;
+import com.google.template.soy.data.SoyValueConverter;
+import com.google.template.soy.data.SoyValueHelper;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.jbcsrc.api.AdvisingStringBuilder;
 import com.google.template.soy.jbcsrc.api.CompiledTemplate;
+import com.google.template.soy.jbcsrc.api.CompiledTemplate.Factory;
+import com.google.template.soy.jbcsrc.api.CompiledTemplates;
+import com.google.template.soy.jbcsrc.api.DelTemplateSelector;
 import com.google.template.soy.jbcsrc.api.RenderContext;
 import com.google.template.soy.jbcsrc.api.RenderResult;
-import com.google.template.soy.shared.SoyCssRenamingMap;
+import com.google.template.soy.msgs.SoyMsgBundle;
+import com.google.template.soy.msgs.internal.ExtractMsgsVisitor;
+import com.google.template.soy.shared.internal.SharedModule;
+import com.google.template.soy.shared.internal.SharedModule.Shared;
+import com.google.template.soy.shared.restricted.SoyJavaFunction;
+import com.google.template.soy.shared.restricted.SoyJavaPrintDirective;
+import com.google.template.soy.sharedpasses.SharedPassesModule;
 import com.google.template.soy.soytree.SoyFileSetNode;
+import com.google.template.soy.soytree.SoytreeUtils;
 import com.google.template.soy.soytree.TemplateRegistry;
+import com.google.template.soy.types.SoyTypeRegistry;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
-
-import javax.annotation.Nonnull;
+import java.util.Map;
 
 /**
  * Utilities for testing compiled soy templates.
  */
 public final class TemplateTester {
-  static final RenderContext EMPTY_CONTEXT = new RenderContext(
-      SoyCssRenamingMap.IDENTITY, SoyCssRenamingMap.IDENTITY);
+  private static final Injector INJECTOR =
+      Guice.createInjector(
+          new ErrorReporterModule(),
+          new SharedModule(), 
+          new SharedPassesModule(),
+          new BasicDirectivesModule(), 
+          new BasicFunctionsModule(), 
+          new AbstractModule() {
+            @Provides RenderContext provideContext(
+                SoyValueHelper converter,
+                @Shared Map<String, SoyJavaFunction> functions,
+                @Shared Map<String, SoyJavaPrintDirective> printDirectives) {
+              return new RenderContext.Builder()
+                  .withSoyFunctions(functions)
+                  .withSoyPrintDirectives(printDirectives)
+                  .withConverter(converter)
+                  .withTemplateSelector(new DelTemplateSelector() {
+                    @Override public Factory selectDelTemplate(String calleeName, String variant,
+                        boolean allowEmpty) {
+                      throw new UnsupportedOperationException();
+                    }
+                  })
+                  .build();
+            }
+            @Override protected void configure() {}
+          });
+
+  static final RenderContext DEFAULT_CONTEXT = INJECTOR.getInstance(RenderContext.class);
 
   private static final SubjectFactory<CompiledTemplateSubject, String> FACTORY =
       new SubjectFactory<CompiledTemplateSubject, String>() {
@@ -64,7 +108,12 @@ public final class TemplateTester {
    * <p>The given body lines are wrapped in a template called {@code ns.foo} that has no params.
    */
   public static CompiledTemplateSubject assertThatTemplateBody(String ...body) {
-    return Truth.assertAbout(FACTORY).that(toTemplate(body));
+    String template = toTemplate(body);
+    return assertThatFile(template);
+  }
+
+  static CompiledTemplateSubject assertThatFile(String ...template) {
+    return Truth.assertAbout(FACTORY).that(Joiner.on('\n').join(template));
   }
 
   /**
@@ -77,35 +126,82 @@ public final class TemplateTester {
     that.compile();
     return that.factory;
   }
+  
+  static SoyRecord asRecord(Map<String, ?> params) {
+    return (SoyRecord) SoyValueHelper.UNCUSTOMIZED_INSTANCE.convert(params);
+  }
 
   static final class CompiledTemplateSubject extends Subject<CompiledTemplateSubject, String> {
     private Iterable<ClassData> classData;
+    private SoyMsgBundle msgBundle;
+    private SoyTypeRegistry typeRegistry = new SoyTypeRegistry();
+    private SoyValueConverter converter = SoyValueHelper.UNCUSTOMIZED_INSTANCE;
     private CompiledTemplate.Factory factory;
+    private RenderContext defaultContext = DEFAULT_CONTEXT;
 
     private CompiledTemplateSubject(FailureStrategy failureStrategy, String subject) {
       super(failureStrategy, subject);
     }
-    
+
+    CompiledTemplateSubject withTypeRegistry(SoyTypeRegistry typeRegistry) {
+      classData = null;
+      factory = null;
+      this.typeRegistry = typeRegistry;
+      return this;
+    }
+
+    CompiledTemplateSubject withValueConverter(SoyValueConverter converter) {
+      classData = null;
+      factory = null;
+      this.converter = converter;
+      return this;
+    }
+
+    CompiledTemplateSubject withMessages(SoyMsgBundle bundle) {
+      classData = null;
+      factory = null;
+      this.msgBundle = bundle;
+      return this;
+    }
+
     CompiledTemplateSubject logsOutput(String expected) {
-      return rendersAndLogs("", expected, EMPTY_DICT, EMPTY_CONTEXT);
+      compile();
+      return rendersAndLogs("", expected, EMPTY_DICT, EMPTY_DICT, defaultContext);
     }
 
     CompiledTemplateSubject rendersAs(String expected) {
-      return rendersAndLogs(expected, "", EMPTY_DICT, EMPTY_CONTEXT);
+      compile();
+      return rendersAndLogs(expected, "", EMPTY_DICT, EMPTY_DICT, defaultContext);
+    }
+    
+    CompiledTemplateSubject rendersAs(String expected, Map<String, ?> params) {
+      compile();
+      return rendersAndLogs(expected, "", asRecord(params), EMPTY_DICT, defaultContext);
     }
 
-    CompiledTemplateSubject rendersAs(String expected, SoyRecord params) {
-      return rendersAndLogs(expected, "", params, EMPTY_CONTEXT);
+    CompiledTemplateSubject rendersAs(
+        String expected, Map<String, ?> params, RenderContext context) {
+      compile();
+      return rendersAndLogs(expected, "", asRecord(params), EMPTY_DICT, context);
+    }
+    
+    CompiledTemplateSubject rendersAs(String expected, Map<String, ?> params,  Map<String, ?> ij) {
+      compile();
+      return rendersAndLogs(expected, "", asRecord(params), asRecord(ij), defaultContext);
     }
     
     CompiledTemplateSubject rendersAs(String expected, RenderContext context) {
-      return rendersAndLogs(expected, "", EMPTY_DICT, context);
+      compile();
+      return rendersAndLogs(expected, "", EMPTY_DICT, EMPTY_DICT, context);
+    }
+
+    private SoyRecord asRecord(Map<String, ?> params) {
+      return (SoyRecord) converter.convert(params);
     }
 
     private CompiledTemplateSubject rendersAndLogs(String expectedOutput, String expectedLogged, 
-        SoyRecord params, RenderContext context) {
-      compile();
-      CompiledTemplate template = factory.create(params, EMPTY_DICT);
+        SoyRecord params, SoyRecord ij, RenderContext context) {
+      CompiledTemplate template = factory.create(params, ij);
       AdvisingStringBuilder builder = new AdvisingStringBuilder();
       LogCapturer logOutput = new LogCapturer();
       RenderResult result;
@@ -114,6 +210,9 @@ public final class TemplateTester {
       } catch (IOException e) {
         // AdvisingStringBuilder doesn't throw IOE
         throw new AssertionError(e);
+      } catch (Exception e) {
+        failureStrategy.fail(String.format("Unexpected failure for %s", getDisplaySubject()), e);
+        result = null;
       }
       if (result.type() != RenderResult.Type.DONE) {
         fail("renders to completion", result);
@@ -124,36 +223,6 @@ public final class TemplateTester {
       }
       if (!expectedLogged.equals(logOutput.toString())) {
         failWithBadResults("logs", expectedLogged, "logs", logOutput.toString());
-      }
-      return this;
-    }
-
-    CompiledTemplateSubject hasCompiledTemplateFactoryClassName(String expectedFactoryClassName) {
-      compile();
-      if (!factory.getClass().getName().equals(expectedFactoryClassName)) {
-        fail("hasCompiledTemplateFactoryClassName", expectedFactoryClassName);
-      }
-      return this;
-    }
-
-    CompiledTemplateSubject hasCompiledTemplateClassName(String expectedClassName) {
-      compile();
-      // Use this fake param store to make sure the constructor doesn't throw on missing parameters
-      CompiledTemplate template = factory.create(new ParamStore() {
-        @Override public boolean hasField(String name) {
-          return true;
-        }
-
-        @Override public SoyValueProvider getFieldProvider(String name) {
-          throw new UnsupportedOperationException();
-        }
-
-        @Override public void setField(String name, @Nonnull SoyValueProvider valueProvider) {
-          throw new UnsupportedOperationException();
-        }
-      }, null);
-      if (!template.getClass().getName().equals(expectedClassName)) {
-        fail("hasCompileTemplateClassName", expectedClassName);
       }
       return this;
     }
@@ -172,17 +241,43 @@ public final class TemplateTester {
 
     private void compile() {
       if (classData == null) {
-        SoyFileSetNode fileSet = SoyFileSetParserBuilder.forFileContents(getSubject()).parse();
+        SoyFileSetNode fileSet = 
+            SoyFileSetParserBuilder.forFileContents(getSubject())
+                .typeRegistry(typeRegistry).parse();
+        new UnsupportedFeatureReporter(ExplodingErrorReporter.get()).check(fileSet);
+        // Clone the tree, there tend to be bugs in the AST clone implementations that don't show
+        // up until development time when we do a lot of AST cloning, so clone here to try to flush
+        // them out.
+        fileSet = SoytreeUtils.cloneNode(fileSet);
+        
+        // Extract messages, to make it easy to test translations and get default (english) strings
+        SoyMsgBundle messages = new ExtractMsgsVisitor(ExplodingErrorReporter.get()).exec(fileSet);
+        SoyMsgBundle defaultBundle = messages;
+        if (this.msgBundle != null) {
+          messages = this.msgBundle;
+        }
+        defaultContext = defaultContext.toBuilder()
+            .withMessageBundles(messages, defaultBundle)
+            .build();
+
         // N.B. we are reproducing some of BytecodeCompiler here to make it easier to look at
         // intermediate data structures.
-        TemplateRegistry registry = new TemplateRegistry(fileSet);
+        TemplateRegistry registry = new TemplateRegistry(fileSet, ExplodingErrorReporter.get());
         CompiledTemplateRegistry compilerRegistry = new CompiledTemplateRegistry(registry);
         String templateName = Iterables.getOnlyElement(registry.getBasicTemplatesMap().keySet());
         CompiledTemplateMetadata classInfo = compilerRegistry.getTemplateInfo(templateName);
-        classData = new TemplateCompiler(classInfo).compile();
+        classData = new TemplateCompiler(compilerRegistry, classInfo,
+            ExplodingErrorReporter.get()).compile();
+        checkClasses(classData);
         factory = BytecodeCompiler.loadFactory(
             classInfo,
             new MemoryClassLoader.Builder().addAll(classData).build());
+      }
+    }
+
+    private static void checkClasses(Iterable<ClassData> classData2) {
+      for (ClassData d : classData2) {
+        d.checkClass();
       }
     }
   }
@@ -190,6 +285,7 @@ public final class TemplateTester {
   private interface SystemOutRestorer extends AutoCloseable {
     @Override public void close();
   }
+
   private static final class LogCapturer {
     private final ByteArrayOutputStream logOutput;
     private final PrintStream stream;
@@ -227,4 +323,11 @@ public final class TemplateTester {
     return builder.toString();
   }
 
+  static CompiledTemplates compileFile(String ...fileBody) {
+    String file = Joiner.on('\n').join(fileBody);
+    return BytecodeCompiler.compile(
+        new TemplateRegistry(SoyFileSetParserBuilder.forFileContents(file).parse(),
+            ExplodingErrorReporter.get()),
+        ExplodingErrorReporter.get()).get();
+  }
 }

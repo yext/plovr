@@ -16,39 +16,60 @@
 
 package com.google.template.soy.jbcsrc;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableMap;
-import com.google.template.soy.jbcsrc.api.CompiledTemplate;
-import com.google.template.soy.soytree.TemplateBasicNode;
-import com.google.template.soy.soytree.TemplateRegistry;
+import static com.google.template.soy.jbcsrc.StandardNames.FACTORY_CLASS;
 
-import java.util.Map;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableMap;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.SoyError;
+import com.google.template.soy.jbcsrc.api.CompiledTemplate;
+import com.google.template.soy.jbcsrc.api.CompiledTemplates;
+import com.google.template.soy.soytree.TemplateNode;
+import com.google.template.soy.soytree.TemplateRegistry;
 
 /**
  * The entry point to the {@code jbcsrc} compiler.
  */
-final class BytecodeCompiler {
+public final class BytecodeCompiler {
   /**
    * Compiles all the templates in the given registry.
    *
-   * <p>TODO(lukes): this interface is insufficient.  We will eventually need additional data to
-   * implement print directives, escaping directives, and soy functions.  Look at the jssrc compiler
-   * to see how it is configured.
+   * @return CompiledTemplates or {@code absent()} if compilation fails, in which case errors will
+   *     have been reported to the error reporter.
    */
-  static CompiledTemplates compile(TemplateRegistry registry) {
+  public static Optional<CompiledTemplates> compile(
+      TemplateRegistry registry, ErrorReporter reporter) {
+    ErrorReporter.Checkpoint checkpoint = reporter.checkpoint();
+    checkForUnsupportedFeatures(registry, reporter);
+    if (reporter.errorsSince(checkpoint)) {
+      return Optional.absent();
+    }
     CompiledTemplateRegistry compilerRegistry = new CompiledTemplateRegistry(registry);
 
     // TODO(lukes): currently we compile all the classes, but you could easily imagine being
     // configured in such a way that we load the classes from the system class loader.  Then we
     // could add a build phase that writes the compiled templates out to a jar.  Then in the non
     // development mode case we could skip even parsing templates!
-    MemoryClassLoader loader = compileTemplates(registry, compilerRegistry);
+    MemoryClassLoader loader = compileTemplates(registry, compilerRegistry, reporter);
+    if (reporter.errorsSince(checkpoint)) {
+      return Optional.absent();
+    }
     ImmutableMap.Builder<String, CompiledTemplate.Factory> factories = ImmutableMap.builder();
-    // TODO(lukes): support deltemplates eventually
-    for (String name : registry.getBasicTemplatesMap().keySet()) {
+    for (TemplateNode node : registry.getAllTemplates()) {
+      String name = node.getTemplateName();
       factories.put(name, loadFactory(compilerRegistry.getTemplateInfo(name), loader));
     }
-    return new CompiledTemplates(factories.build());
+    return Optional.of(new CompiledTemplates(factories.build()));
+  }
+
+  private static void checkForUnsupportedFeatures(TemplateRegistry registry,
+      ErrorReporter errorReporter) {
+    UnsupportedFeatureReporter reporter = new UnsupportedFeatureReporter(errorReporter);
+    for (TemplateNode node : registry.getAllTemplates()) {
+      reporter.check(node);
+    }
   }
 
   @VisibleForTesting static CompiledTemplate.Factory loadFactory(
@@ -59,8 +80,9 @@ final class BytecodeCompiler {
     // reflective cost isn't paid on a per render basis.
     CompiledTemplate.Factory factory;
     try {
+      String factoryName = templateInfo.typeInfo().innerClass(FACTORY_CLASS).className();
       Class<? extends CompiledTemplate.Factory> factoryClass =
-          Class.forName(templateInfo.factory().className(), true /* run clinit */, loader)
+          Class.forName(factoryName, true /* run clinit */, loader)
               .asSubclass(CompiledTemplate.Factory.class);
       factory = factoryClass.newInstance();
     } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
@@ -78,17 +100,37 @@ final class BytecodeCompiler {
    * {@link MemoryClassLoader}
    */
   private static MemoryClassLoader compileTemplates(
-      TemplateRegistry registry, CompiledTemplateRegistry compilerRegistry) {
+      TemplateRegistry registry,
+      CompiledTemplateRegistry compilerRegistry,
+      ErrorReporter errorReporter) {
     MemoryClassLoader.Builder builder = new MemoryClassLoader.Builder();
     // We generate all the classes and then start loading them.  This 2 phase process ensures that
     // we don't have to worry about ordering (where a class we have generated references a class we
     // haven't generated yet), because none of the classes are loadable until they all are.
-    for (Map.Entry<String, TemplateBasicNode> template :
-        registry.getBasicTemplatesMap().entrySet()) {
-      String name = template.getKey();
-      CompiledTemplateMetadata classInfo = compilerRegistry.getTemplateInfo(name);
-      for (ClassData clazz : new TemplateCompiler(classInfo).compile()) {
-        builder.add(clazz);
+    for (TemplateNode template : registry.getAllTemplates()) {
+      String name = template.getTemplateName();
+      try {
+        CompiledTemplateMetadata classInfo = compilerRegistry.getTemplateInfo(name);
+        TemplateCompiler templateCompiler = 
+            new TemplateCompiler(compilerRegistry, classInfo, errorReporter);
+        for (ClassData clazz : templateCompiler.compile()) {
+          clazz.checkClass();
+          builder.add(clazz);
+        }
+      // Report unexpected errors and keep going to try to collect more.
+      } catch (UnexpectedCompilerFailureException e) {
+        errorReporter.report(e.getOriginalLocation(), 
+            SoyError.of("Unexpected error while compiling template: ''{0}''\nSoy Stack:\n{1}"
+                + "\nCompiler Stack:{2}"), 
+            name,
+            e.printSoyStack(),
+            Throwables.getStackTraceAsString(e));
+        
+      } catch (Throwable t) {
+        errorReporter.report(template.getSourceLocation(), 
+            SoyError.of("Unexpected error while compiling template: ''{0}''\n{1}"), 
+            name, 
+            Throwables.getStackTraceAsString(t));
       }
     }
     return builder.build();

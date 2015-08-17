@@ -20,17 +20,15 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.value.AutoValue;
+import com.google.template.soy.data.SoyValueHelper;
 import com.google.template.soy.data.restricted.BooleanData;
-import com.google.template.soy.data.restricted.IntegerData;
-import com.google.template.soy.data.restricted.NullData;
-import com.google.template.soy.data.restricted.StringData;
-import com.google.template.soy.data.restricted.UndefinedData;
-import com.google.template.soy.jbcsrc.Expression.SimpleExpression;
+import com.google.template.soy.jbcsrc.Expression.Feature;
+import com.google.template.soy.jbcsrc.Expression.Features;
+import com.google.template.soy.jbcsrc.runtime.Runtime;
 
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.lang.reflect.Modifier;
 
@@ -40,38 +38,60 @@ import java.lang.reflect.Modifier;
 @AutoValue abstract class FieldRef {
   static final FieldRef BOOLEAN_DATA_FALSE = staticFieldReference(BooleanData.class, "FALSE");
   static final FieldRef BOOLEAN_DATA_TRUE = staticFieldReference(BooleanData.class, "TRUE");
-  static final FieldRef INTEGER_DATA_ZERO = staticFieldReference(IntegerData.class, "ZERO");
-  static final FieldRef INTEGER_DATA_ONE = staticFieldReference(IntegerData.class, "ONE");
-  static final FieldRef INTEGER_DATA_MINUS_ONE = 
-      staticFieldReference(IntegerData.class, "MINUS_ONE");
-  static final FieldRef NULL_DATA_INSTANCE = staticFieldReference(NullData.class, "INSTANCE");
-  static final FieldRef UNDEFINED_DATA_INSTANCE = 
-      staticFieldReference(UndefinedData.class, "INSTANCE");
-  static final FieldRef STRING_DATA_EMPTY = staticFieldReference(StringData.class, "EMPTY_STRING");
-  static final FieldRef SYSTEM_OUT = staticFieldReference(System.class, "out");
+  static final FieldRef NULL_PROVIDER = staticFieldReference(Runtime.class, "NULL_PROVIDER");
+  static final FieldRef EMPTY_DICT = staticFieldReference(SoyValueHelper.class, "EMPTY_DICT");
 
   static FieldRef createFinalField(TypeInfo owner, String name, Class<?> type) {
+    return createFinalField(owner, name, Type.getType(type));
+  }
+  static FieldRef createFinalField(TypeInfo owner, String name, Type type) {
     return new AutoValue_FieldRef(
-        owner, name, Type.getType(type), 
-        Opcodes.ACC_PRIVATE + Opcodes.ACC_FINAL);
+        owner,
+        name,
+        type,
+        Opcodes.ACC_PRIVATE + Opcodes.ACC_FINAL,
+        !BytecodeUtils.isPrimitive(type));
   }
 
-  static FieldRef staticFieldReference(Class<?> owner, String name) {
+  static FieldRef instanceFieldReference(Class<?> owner, String name) {
     Class<?> fieldType;
+    int modifiers = 0;
     try {
       java.lang.reflect.Field declaredField = owner.getDeclaredField(name);
-      if (!Modifier.isStatic(declaredField.getModifiers())) {
-        throw new IllegalStateException("Field: " + declaredField + " is not static");
-      }
-      if (!Modifier.isFinal(declaredField.getModifiers())) {
-        throw new IllegalStateException("Field: " + declaredField + " is not final");
+      modifiers = declaredField.getModifiers();
+      if (Modifier.isStatic(modifiers)) {
+        throw new IllegalStateException("Field: " + declaredField + " is static");
       }
       fieldType = declaredField.getType();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
     return new AutoValue_FieldRef(
-        TypeInfo.create(owner), name, Type.getType(fieldType), Opcodes.ACC_STATIC);
+        TypeInfo.create(owner), name, Type.getType(fieldType), modifiers, !fieldType.isPrimitive());
+  }
+
+  static FieldRef staticFieldReference(Class<?> owner, String name) {
+    java.lang.reflect.Field declaredField;
+    try {
+      declaredField = owner.getDeclaredField(name);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    return staticFieldReference(declaredField);
+  }
+
+  static FieldRef staticFieldReference(java.lang.reflect.Field field) {
+    if (!Modifier.isStatic(field.getModifiers())) {
+      throw new IllegalStateException("Field: " + field + " is not static");
+    }
+    return new AutoValue_FieldRef(
+        TypeInfo.create(field.getDeclaringClass()), field.getName(), Type.getType(field.getType()),
+        Opcodes.ACC_STATIC,
+        false /** Assume all static field refs are non-null. */);
+  }
+
+  static <T extends Enum<T>> FieldRef enumReference(T enumInstance) {
+    return staticFieldReference(enumInstance.getDeclaringClass(), enumInstance.name());
   }
 
   static FieldRef createField(TypeInfo owner, String name, Class<?> type) {
@@ -79,11 +99,8 @@ import java.lang.reflect.Modifier;
   }
 
   static FieldRef createField(TypeInfo owner, String name, Type type) {
-    return new AutoValue_FieldRef(owner, name, type, Opcodes.ACC_PRIVATE);
-  }
-
-  static FieldRef createPackagePrivateField(TypeInfo owner, String name, Type type) {
-    return new AutoValue_FieldRef(owner, name, type, 0);
+    return new AutoValue_FieldRef(
+        owner, name, type, Opcodes.ACC_PRIVATE, !BytecodeUtils.isPrimitive(type));
   }
   
   /** The type that owns this field. */
@@ -96,6 +113,7 @@ import java.lang.reflect.Modifier;
    * and {@link Opcodes#ACC_PRIVATE}.
    */
   abstract int accessFlags();
+  abstract boolean isNullable();
 
   final boolean isStatic() {
     return (accessFlags() & Opcodes.ACC_STATIC) != 0;
@@ -110,6 +128,13 @@ import java.lang.reflect.Modifier;
         null /* no generic signature */, 
         null /* no initializer */);
   }
+  
+  FieldRef asNonNull() {
+    if (!isNullable() || BytecodeUtils.isPrimitive(type())) {
+      return this;
+    }
+    return new AutoValue_FieldRef(owner(), name(), type(), accessFlags(), false);
+  }
 
   /**
    * Returns an accessor that accesses this field on the given owner.
@@ -117,8 +142,15 @@ import java.lang.reflect.Modifier;
   Expression accessor(final Expression owner) {
     checkState(!isStatic());
     checkArgument(owner.resultType().equals(this.owner().type()));
-    return new SimpleExpression(type(), owner.isConstant()) {
-      @Override void doGen(GeneratorAdapter mv) {
+    Features features = Features.of();
+    if (owner.isCheap()) {
+      features = features.plus(Feature.CHEAP);
+    }
+    if (!isNullable()) {
+      features = features.plus(Feature.NON_NULLABLE);
+    }
+    return new Expression(type(), features) {
+      @Override void doGen(CodeBuilder mv) {
         owner.gen(mv);
         mv.getField(owner().type(), FieldRef.this.name(), resultType());
       }
@@ -130,8 +162,12 @@ import java.lang.reflect.Modifier;
    */
   Expression accessor() {
     checkState(isStatic());
-    return new SimpleExpression(type(), true /* isConstant */) {
-      @Override void doGen(GeneratorAdapter mv) {
+    Features features = Features.of(Feature.CHEAP);
+    if (!isNullable()) {
+      features = features.plus(Feature.NON_NULLABLE);
+    }
+    return new Expression(type(), features) {
+      @Override void doGen(CodeBuilder mv) {
         mv.getStatic(owner().type(), FieldRef.this.name(), resultType());
       }
     };
@@ -148,11 +184,22 @@ import java.lang.reflect.Modifier;
     instance.checkAssignableTo(owner().type());
     value.checkAssignableTo(type());
     return new Statement() {
-      @Override void doGen(GeneratorAdapter adapter) {
+      @Override void doGen(CodeBuilder adapter) {
         instance.gen(adapter);
         value.gen(adapter);
-        adapter.putField(owner().type(), name(), type());
+        putUnchecked(adapter);
       }
+
     };
+  }
+  
+  /**
+   * Adds code to place the top item of the stack into this field.
+   * 
+   * @throws IllegalStateException if this is a static field
+   */
+  void putUnchecked(CodeBuilder adapter) {
+    checkState(!isStatic(), "This field is static!");
+    adapter.putField(owner().type(), name(), type());
   }
 }

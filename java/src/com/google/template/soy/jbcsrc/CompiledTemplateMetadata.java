@@ -20,12 +20,12 @@ import com.google.auto.value.AutoValue;
 import com.google.template.soy.data.SoyRecord;
 import com.google.template.soy.jbcsrc.api.AdvisingAppendable;
 import com.google.template.soy.jbcsrc.api.CompiledTemplate;
+import com.google.template.soy.jbcsrc.api.Names;
 import com.google.template.soy.jbcsrc.api.RenderContext;
-import com.google.template.soy.soytree.TemplateBasicNode;
+import com.google.template.soy.soytree.TemplateNode;
 
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.Method;
-
 
 /**
  * Information about a compiled template.
@@ -34,18 +34,11 @@ import org.objectweb.asm.commons.Method;
  * generating that template as well as calls to the template.
  */
 @AutoValue abstract class CompiledTemplateMetadata {
-  // TODO(lukes): this is easy to change, but what should it be? using the actual template names to
-  // form the packages is possible and may be desirable.  There is a semi standardized name mangling
-  // convention see: https://blogs.oracle.com/jrose/entry/symbolic_freedom_in_the_vm implemented
-  // in sun.invoke.util.BytecodeName, which is annoying because it is non-portable... ugh.
-  private static final String CLASS_PREFIX =
-      CompiledTemplateMetadata.class.getPackage().getName() + ".gen.";
-
   /**
    * The {@link Method} signature of all generated constructors for the {@link CompiledTemplate}
    * classes.
    */
-  static final Method GENERATED_CONSTRUCTOR = new Method("<init>",
+  private static final Method GENERATED_CONSTRUCTOR = new Method("<init>",
       Type.getMethodDescriptor(Type.VOID_TYPE, 
           Type.getType(SoyRecord.class), Type.getType(SoyRecord.class)));
 
@@ -54,7 +47,7 @@ import org.objectweb.asm.commons.Method;
    * {@link CompiledTemplate#render(AdvisingAppendable, RenderContext)}  
    * method. 
    */
-  static final Method RENDER_METHOD;
+  private static final Method RENDER_METHOD;
 
   static {
     try {
@@ -67,24 +60,30 @@ import org.objectweb.asm.commons.Method;
     }
   }
 
-  static CompiledTemplateMetadata create(String templateName, TemplateBasicNode node) {
-    // Mangle the fully qualified template names to conform to a java class name.
-    String className = CLASS_PREFIX + templateName.replace(".", "$$");
-    String factoryClassName = className + "_Factory";
+  static CompiledTemplateMetadata create(String templateName, TemplateNode node) {
+    String className = Names.javaClassNameFromSoyTemplateName(templateName);
+    TypeInfo type = TypeInfo.create(className);
     return new AutoValue_CompiledTemplateMetadata(
-        TypeInfo.create(className),
-        node,
-        TypeInfo.create(factoryClassName));
+        ConstructorRef.create(type, GENERATED_CONSTRUCTOR),
+        MethodRef.createInstanceMethod(type, RENDER_METHOD).asNonNullable(),
+        type, 
+        node);
   }
+
+  /** 
+   * The template constructor.
+   * 
+   * <p>The constructor has the same interface as 
+   * {@link com.google.template.soy.jbcsrc.api.CompiledTemplate.Factory#create}
+   */
+  abstract ConstructorRef constructor();
+  
+  /** The {@link CompiledTemplate#render(AdvisingAppendable, RenderContext)} method. */
+  abstract MethodRef renderMethod();
 
   /** The name of the compiled template. */
   abstract TypeInfo typeInfo();
 
   /** The actual template. */
-  abstract TemplateBasicNode node();
-
-  /** 
-   * The name of this templates {@link com.google.template.soy.jbcsrc.api.CompiledTemplate.Factory}.
-   */
-  abstract TypeInfo factory();
+  abstract TemplateNode node();
 }

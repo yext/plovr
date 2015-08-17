@@ -21,9 +21,9 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.sharedpasses.FindTransitiveDepTemplatesVisitor.TransitiveDepTemplatesInfo;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.TemplateNode;
 import com.google.template.soy.soytree.TemplateRegistry;
@@ -69,7 +69,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);
@@ -132,7 +132,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);
@@ -178,7 +178,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);
@@ -226,7 +226,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);
@@ -277,7 +277,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);
@@ -324,7 +324,7 @@ public final class FindTransitiveDepTemplatesVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(fileContent)
         .errorReporter(FAIL)
         .parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, FAIL);
 
     TemplateNode aaa = soyTree.getChild(0).getChild(0);
     TemplateNode bbb = soyTree.getChild(0).getChild(1);

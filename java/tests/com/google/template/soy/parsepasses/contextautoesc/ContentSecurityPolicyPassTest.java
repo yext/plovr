@@ -21,9 +21,9 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.restricted.SoyPrintDirective;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.SoyFileNode;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.TemplateNode;
@@ -38,9 +38,9 @@ import java.util.List;
  */
 public final class ContentSecurityPolicyPassTest extends TestCase {
 
-  private static final String NONCE = "{if $ij.csp_nonce} nonce=\"{$ij.csp_nonce}\"{/if}";
+  private static final String NONCE = "{if $ij?.csp_nonce} nonce=\"{$ij?.csp_nonce}\"{/if}";
 
-  public final void testTrivialTemplate() throws Exception {
+  public void testTrivialTemplate() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -52,7 +52,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testOneScriptWithBody() throws Exception {
+  public void testOneScriptWithBody() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -64,7 +64,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testOneSrcedScript() throws Exception {
+  public void testOneSrcedScript() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -76,7 +76,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testManyScripts() throws Exception {
+  public void testManyScripts() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -96,7 +96,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testFakeScripts() throws Exception {
+  public void testFakeScripts() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -120,7 +120,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testPrintDirectiveInScriptTag() throws Exception {
+  public void testPrintDirectiveInScriptTag() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -135,7 +135,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testOneStyleTag() throws Exception {
+  public void testOneStyleTag() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -149,7 +149,7 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testTrailingSlashes() throws Exception {
+  public void testTrailingSlashes() {
     assertInjected(
         join(
             "{template foo}\n",
@@ -161,18 +161,19 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             "{/template}"));
   }
 
-  public final void testInlineEventHandlersAndStyles() throws Exception {
+  public void testInlineEventHandlersAndStyles() {
     assertInjected(
         join(
             "{template foo}\n",
+            "  {@param height: int}\n",
             "<a href='#' style='",
-            "{if $ij.csp_nonce}",
-              "/*{$ij.csp_nonce}*/",
+            "{if $ij?.csp_nonce}",
+              "/*{$ij?.csp_nonce}*/",
             "{/if}",
-            "font-weight:bold'",
+            "height:{$height |filterCssValue |escapeHtmlAttribute}px;'",
             " onclick='",
-            "{if $ij.csp_nonce}",
-              "/*{$ij.csp_nonce}*/",
+            "{if $ij?.csp_nonce}",
+              "/*{$ij?.csp_nonce}*/",
             "{/if}",
             "foo() &amp;& bar(\"baz\")'",
             ">",
@@ -185,26 +186,27 @@ public final class ContentSecurityPolicyPassTest extends TestCase {
             " style=color:red>",
 
             "<input checked ONCHANGE = \"",
-            "{if $ij.csp_nonce}",
-              "/*{$ij.csp_nonce}*/",
+            "{if $ij?.csp_nonce}",
+              "/*{$ij?.csp_nonce}*/",
             "{/if}",
             "Panic()\"",
             ">",
 
             "<script onerror= '",
-            "{if $ij.csp_nonce}",
-              "/*{$ij.csp_nonce}*/",
+            "{if $ij?.csp_nonce}",
+              "/*{$ij?.csp_nonce}*/",
             "{/if}",
             "scriptError()'",
-            "{if $ij.csp_nonce}",
-              " nonce=\"{$ij.csp_nonce}\"",
+            "{if $ij?.csp_nonce}",
+              " nonce=\"{$ij?.csp_nonce}\"",
             "{/if}",
             ">baz()</script>\n",
 
             "{/template}"),
         join(
             "{template foo}\n",
-            "<a href='#' style='font-weight:bold' onclick='foo() &amp;& bar(\"baz\")'>",
+            "  {@param height: int}\n",
+            "<a href='#' style='height:{$height}px;' onclick='foo() &amp;& bar(\"baz\")'>",
             "<a href='#' onmouseover=foo() style=color:red>",
             "<input checked ONCHANGE = \"Panic()\">",
             "<script onerror= 'scriptError()'>baz()</script>\n",

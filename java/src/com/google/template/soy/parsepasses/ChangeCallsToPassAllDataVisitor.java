@@ -17,13 +17,14 @@
 package com.google.template.soy.parsepasses;
 
 import com.google.common.base.Preconditions;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.exprtree.VarRefNode;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallBasicNode;
 import com.google.template.soy.soytree.CallDelegateNode;
 import com.google.template.soy.soytree.CallNode;
+import com.google.template.soy.soytree.CallNode.DataAttribute;
 import com.google.template.soy.soytree.CallParamNode;
 import com.google.template.soy.soytree.CallParamValueNode;
 import com.google.template.soy.soytree.SoyFileNode;
@@ -72,7 +73,7 @@ public final class ChangeCallsToPassAllDataVisitor extends AbstractSoyNodeVisito
     visitChildrenAllowingConcurrentModification(node);
 
     // If this call already passes data (but not all data), then this optimization doesn't apply.
-    if (node.isPassingData() && ! node.isPassingAllData()) {
+    if (node.dataAttribute().isPassingData() && !node.dataAttribute().isPassingAllData()) {
       return;
     }
 
@@ -92,7 +93,7 @@ public final class ChangeCallsToPassAllDataVisitor extends AbstractSoyNodeVisito
       if (valueExprRoot == null) {
         return;
       }
-      VarRefNode valueDataRef = (VarRefNode) valueExprRoot.getChild(0);
+      VarRefNode valueDataRef = (VarRefNode) valueExprRoot.getRoot();
       if (valueDataRef.isLocalVar() || valueDataRef.isInjected()) {
         return;
       }
@@ -105,22 +106,20 @@ public final class ChangeCallsToPassAllDataVisitor extends AbstractSoyNodeVisito
       newCallNode = new CallBasicNode.Builder(node.getId(), node.getSourceLocation())
           .calleeName(nodeCast.getCalleeName())
           .sourceCalleeName(nodeCast.getSrcCalleeName())
-          .isPassingData(true)
-          .isPassingAllData(true)
+          .dataAttribute(DataAttribute.all())
           .userSuppliedPlaceholderName(node.getUserSuppliedPhName())
           .escapingDirectiveNames(node.getEscapingDirectiveNames())
-          .buildAndThrowIfInvalid();
+          .build(errorReporter);
     } else {
       CallDelegateNode nodeCast = (CallDelegateNode) node;
       newCallNode = new CallDelegateNode.Builder(node.getId(), node.getSourceLocation())
           .delCalleeName(nodeCast.getDelCalleeName())
           .delCalleeVariantExpr(nodeCast.getDelCalleeVariantExpr())
           .allowEmptyDefault(nodeCast.allowsEmptyDefault())
-          .isPassingData(true)
-          .isPassingAllData(true)
+          .dataAttribute(DataAttribute.all())
           .userSuppliedPlaceholderName(node.getUserSuppliedPhName())
           .escapingDirectiveNames(node.getEscapingDirectiveNames())
-          .buildAndThrowIfInvalid();
+          .build(errorReporter);
     }
     node.getParent().replaceChild(node, newCallNode);
   }

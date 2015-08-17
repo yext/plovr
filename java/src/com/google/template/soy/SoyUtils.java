@@ -16,17 +16,17 @@
 
 package com.google.template.soy;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.CharSource;
-import com.google.common.io.Files;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.data.internalutils.InternalValueUtils;
 import com.google.template.soy.data.restricted.FloatData;
 import com.google.template.soy.data.restricted.IntegerData;
 import com.google.template.soy.data.restricted.PrimitiveData;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprNode.PrimitiveNode;
@@ -35,12 +35,8 @@ import com.google.template.soy.exprtree.GlobalNode;
 import com.google.template.soy.exprtree.IntegerNode;
 import com.google.template.soy.exprtree.OperatorNodes.NegativeOpNode;
 import com.google.template.soy.exprtree.VarRefNode;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -69,7 +65,6 @@ public final class SoyUtils {
    * @param output The object to append the generated text to.
    * @throws SoySyntaxException If one of the values is not a valid Soy primitive type.
    * @throws IOException If there is an error appending to the given {@code Appendable}.
-   * @see #generateCompileTimeGlobalsFile(Map, File)
    */
   public static void generateCompileTimeGlobalsFile(
       Map<String, ?> compileTimeGlobalsMap, Appendable output) throws IOException {
@@ -81,26 +76,6 @@ public final class SoyUtils {
       String valueSrcStr =
           InternalValueUtils.convertPrimitiveDataToExpr(entry.getValue()).toSourceString();
       output.append(entry.getKey()).append(" = ").append(valueSrcStr).append("\n");
-    }
-  }
-
-
-  /**
-   * Generates a compile-time globals file in the format expected by the Soy compiler.
-   *
-   * <p> The generated lines will follow the iteration order of the provided map.
-   *
-   * @param compileTimeGlobalsMap Map from compile-time global name to value. The values can be
-   *     any of the Soy primitive types: null, boolean, integer, float (Java double), or string.
-   * @param file The file to write the generated text to.
-   * @throws SoySyntaxException If one of the values is not a valid Soy primitive type.
-   * @throws IOException If there is an error appending to the given {@code Appendable}.
-   * @see #generateCompileTimeGlobalsFile(Map, Appendable)
-   */
-  public static void generateCompileTimeGlobalsFile(
-      Map<String, ?> compileTimeGlobalsMap, File file) throws IOException {
-    try (BufferedWriter writer = Files.newWriter(file, UTF_8)) {
-      generateCompileTimeGlobalsFile(compileTimeGlobalsMap, writer);
     }
   }
 
@@ -130,12 +105,12 @@ public final class SoyUtils {
    * @param inputSource A source that returns a reader for the globals file.
    * @return The parsed globals map.
    * @throws IOException If an error occurs while reading the globals file.
-   * @throws SoySyntaxException If the globals file is not in the correct format.
+   * @throws java.lang.IllegalStateException If the globals file is not in the correct format.
    */
-  public static ImmutableMap<String, PrimitiveData> parseCompileTimeGlobals(
-      CharSource inputSource) throws IOException, SoySyntaxException {
+  public static ImmutableMap<String, PrimitiveData> parseCompileTimeGlobals(CharSource inputSource)
+      throws IOException {
     ImmutableMap.Builder<String, PrimitiveData> compileTimeGlobalsBuilder = ImmutableMap.builder();
-    TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
+    ErrorReporter errorReporter = ExplodingErrorReporter.get();
 
     try (BufferedReader reader = new BufferedReader(inputSource.openStream())) {
       int lineNum = 1;
@@ -191,8 +166,6 @@ public final class SoyUtils {
             name, InternalValueUtils.convertPrimitiveExprToData((PrimitiveNode) valueExpr));
       }
     }
-    // TODO(user): Remove once callers have access to an error reporter.
-    errorReporter.throwIfErrorsPresent();
     return compileTimeGlobalsBuilder.build();
   }
 }

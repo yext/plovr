@@ -21,9 +21,9 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.collect.Lists;
 import com.google.template.soy.SoyFileSetParserBuilder;
 import com.google.template.soy.base.SoySyntaxException;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.SharedTestUtils;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CssNode;
 import com.google.template.soy.soytree.SoyFileSetNode;
@@ -54,7 +54,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
     List<CssNode> cssNodes = compileTemplate(
         "{namespace boo cssbase=\"some.test.package\"}\n\n" +
         "/** Test template. @param goo */\n" +
-        "{template name=\".foo\"}\n" +
+        "{template .foo}\n" +
         "  <div class=\"{css %AAA}\">\n" +
         "{/template}\n");
 
@@ -65,7 +65,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
     List<CssNode> cssNodes = compileTemplate(
         "{namespace boo}\n\n" +
         "/** Test template. @param goo */\n" +
-        "{template name=\".foo\" cssbase=\"some.test.package\"}\n" +
+        "{template .foo cssbase=\"some.test.package\"}\n" +
         "  <div class=\"{css %AAA}\">\n" +
         "{/template}\n");
 
@@ -76,7 +76,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
     List<CssNode> cssNodes = compileTemplate(
         "{namespace boo requirecss=\"some.test.package,some.other.package\"}\n\n" +
         "/** Test template. @param goo */\n" +
-        "{template name=\".foo\"}\n" +
+        "{template .foo}\n" +
         "  <div class=\"{css %AAA}\">\n" +
         "{/template}\n");
 
@@ -87,7 +87,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
     List<CssNode> cssNodes = compileTemplate(
         "{namespace boo cssbase=\"some.test.package\"}\n\n" +
         "/** Test template. @param goo */\n" +
-        "{template name=\".foo\"}\n" +
+        "{template .foo}\n" +
         "  <div class=\"{css AAA}\">\n" +
         "{/template}\n");
 
@@ -99,7 +99,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
       compileTemplate(
           "{namespace boo}\n\n" +
           "/** Test template. @param goo */\n" +
-          "{template name=\".foo\"}\n" +
+          "{template .foo}\n" +
           "  <div class=\"{css %AAA}\">\n" +
           "{/template}\n");
       fail("Exception expected");
@@ -113,7 +113,7 @@ public class ResolvePackageRelativeCssNamesVisitorTest extends TestCase {
       compileTemplate(
           "{namespace boo}\n\n" +
           "/** Test template. @param goo */\n" +
-          "{template name=\".foo\"}\n" +
+          "{template .foo}\n" +
           "  <div class=\"{css $goo, %AAA}\">\n" +
           "{/template}\n");
       fail("Exception expected");

@@ -18,12 +18,14 @@ package com.google.template.soy.parsepasses;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.template.soy.FormattingErrorReporter;
 import com.google.template.soy.SoyFileSetParserBuilder;
-import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.basetree.SyntaxVersion;
-import com.google.template.soy.sharedpasses.CheckSoyDocVisitor;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.sharedpasses.CheckTemplateParamsVisitor;
 import com.google.template.soy.soytree.SoyFileSetNode;
 
 import junit.framework.TestCase;
@@ -37,7 +39,7 @@ public final class CheckCallsVisitorTest extends TestCase {
   public void testMissingParam() {
 
     assertInvalidSoyFiles(
-        "template ns1.boo: Call to 'ns1.foo' is missing required params [goo, moo].",
+        "Call missing required params [goo, moo].",
         "" +
             "{namespace ns1 autoescape=\"deprecated-noncontextual\"}\n" +
             "\n" +
@@ -55,7 +57,7 @@ public final class CheckCallsVisitorTest extends TestCase {
             "{/template}\n");
 
     assertInvalidSoyFiles(
-        "template ns1.boo: Call to 'ns2.foo_' is missing required param 'moo'.",
+        "Call missing required param 'moo'.",
         "" +
             "{namespace ns1 autoescape=\"deprecated-noncontextual\"}\n" +
             "\n" +
@@ -81,7 +83,7 @@ public final class CheckCallsVisitorTest extends TestCase {
   public void testMissingParamInDelcall() {
 
     assertInvalidSoyFiles(
-        "template ns1.boo: Call to 'fooFoo' is missing required param 'moo'.",
+        "Call missing required param 'moo'.",
         "" +
             "{namespace ns1 autoescape=\"deprecated-noncontextual\"}\n" +
             "\n" +
@@ -101,7 +103,7 @@ public final class CheckCallsVisitorTest extends TestCase {
             "{/deltemplate}\n");
 
     assertInvalidSoyFiles(
-        "template ns1.boo: Call to 'fooFoo' is missing required params [goo, moo].",
+        "Call missing required params [goo, moo].",
         "" +
             "{namespace ns1 autoescape=\"deprecated-noncontextual\"}\n" +
             "\n" +
@@ -170,23 +172,18 @@ public final class CheckCallsVisitorTest extends TestCase {
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(soyFileContents)
         .errorReporter(boom)
         .parse();
-    new CheckSoyDocVisitor(SyntaxVersion.V2_0, boom).exec(soyTree);
+    new CheckTemplateParamsVisitor(SyntaxVersion.V2_0, boom).exec(soyTree);
     new CheckCallsVisitor(boom).exec(soyTree);
   }
 
 
   private void assertInvalidSoyFiles(String expectedErrorMsgSubstr, String... soyFileContents) {
-    ErrorReporter boom = ExplodingErrorReporter.get();
+    FormattingErrorReporter errorReporter = new FormattingErrorReporter();
     SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(soyFileContents).parse();
-    new CheckSoyDocVisitor(SyntaxVersion.V2_0, boom).exec(soyTree);
-    try {
-      new CheckCallsVisitor(boom).exec(soyTree);
-    } catch (SoySyntaxException sse) {
-      // TODO(user): even though the visitor has an error reporter, it doesn't *use* the error
-      // reporter yet. Remove this try-catch once it does.
-      assertThat(sse.getMessage()).contains(expectedErrorMsgSubstr);
-      return;  // test passes
-    }
-    fail();
+    new CheckTemplateParamsVisitor(SyntaxVersion.V2_0, errorReporter).exec(soyTree);
+    new CheckCallsVisitor(errorReporter).exec(soyTree);
+    ImmutableList<String> errorMessages = errorReporter.getErrorMessages();
+    assertThat(errorMessages).hasSize(1);
+    assertThat(Iterables.getFirst(errorMessages, null)).contains(expectedErrorMsgSubstr);
   }
 }

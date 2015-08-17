@@ -18,13 +18,12 @@ package com.google.template.soy.soytree;
 
 import com.google.template.soy.basetree.AbstractNodeVisitor;
 import com.google.template.soy.basetree.ParentNode;
-import com.google.template.soy.soyparse.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.soytree.SoyNode.LoopNode;
 import com.google.template.soy.soytree.SoyNode.MsgSubstUnitNode;
 import com.google.template.soy.soytree.SoyNode.ParentSoyNode;
 import com.google.template.soy.soytree.jssrc.GoogMsgDefNode;
 import com.google.template.soy.soytree.jssrc.GoogMsgRefNode;
-
 
 /**
  * Abstract base class for all SoyNode visitors. A visitor is basically a function implemented for
@@ -79,8 +78,6 @@ public abstract class AbstractSoyNodeVisitor<R> extends AbstractNodeVisitor<SoyN
       case MSG_PLURAL_NODE: visitMsgPluralNode((MsgPluralNode) node); break;
       case MSG_PLURAL_CASE_NODE: visitMsgPluralCaseNode((MsgPluralCaseNode) node); break;
       case MSG_PLURAL_DEFAULT_NODE: visitMsgPluralDefaultNode((MsgPluralDefaultNode) node); break;
-      case MSG_PLURAL_REMAINDER_NODE:
-        visitMsgPluralRemainderNode((MsgPluralRemainderNode) node); break;
       case MSG_SELECT_NODE: visitMsgSelectNode((MsgSelectNode) node); break;
       case MSG_SELECT_CASE_NODE: visitMsgSelectCaseNode((MsgSelectCaseNode) node); break;
       case MSG_SELECT_DEFAULT_NODE: visitMsgSelectDefaultNode((MsgSelectDefaultNode) node); break;
@@ -118,7 +115,17 @@ public abstract class AbstractSoyNodeVisitor<R> extends AbstractNodeVisitor<SoyN
       case LOG_NODE: visitLogNode((LogNode) node); break;
       case DEBUGGER_NODE: visitDebuggerNode((DebuggerNode) node); break;
 
-      default: throw new UnsupportedOperationException();
+      case HTML_ATTRIBUTE: visitGenericHtmlNode(node); break;
+      case HTML_OPEN_TAG: visitGenericHtmlNode(node); break;
+      case HTML_OPEN_TAG_START: visitGenericHtmlNode(node); break;
+      case HTML_OPEN_TAG_END: visitGenericHtmlNode(node); break;
+      case HTML_CLOSE_TAG: visitGenericHtmlNode(node); break;
+      case HTML_VOID_TAG: visitGenericHtmlNode(node); break;
+      case HTML_TEXT: visitGenericHtmlNode(node); break;
+      case HTML_PRINT_NODE: visitGenericHtmlNode(node); break;
+
+
+      default: visitSoyNode(node); break;
     }
   }
 
@@ -136,8 +143,8 @@ public abstract class AbstractSoyNodeVisitor<R> extends AbstractNodeVisitor<SoyN
   /**
    * Helper to visit all the children of a node, in order.
    *
-   * This method differs from {@code visitChildren} in that we are iterating through a copy of the
-   * children. Thus, concurrent modification of the list of children is allowed.
+   * <p>This method differs from {@code visitChildren} in that we are iterating through a copy of
+   * the children. Thus, concurrent modification of the list of children is allowed.
    *
    * @param node The parent node whose children to visit.
    * @see #visitChildren
@@ -201,10 +208,6 @@ public abstract class AbstractSoyNodeVisitor<R> extends AbstractNodeVisitor<SoyN
 
   protected void visitMsgPluralDefaultNode(MsgPluralDefaultNode node) {
     visitSoyNode(node);
-  }
-
-  protected void visitMsgPluralRemainderNode(MsgPluralRemainderNode node) {
-    visitMsgSubstUnitNode(node);
   }
 
   protected void visitMsgSelectNode(MsgSelectNode node) {
@@ -347,4 +350,9 @@ public abstract class AbstractSoyNodeVisitor<R> extends AbstractNodeVisitor<SoyN
     throw new UnsupportedOperationException();
   }
 
+  private final void visitGenericHtmlNode(SoyNode node) {
+    throw new IllegalStateException("This visitor does not handle nodes created by "
+          + "HtmlTransformVisitor. This visitor should implement AbstractHtmlSoyNodeVisitor "
+          + "instead. The visited node was" + node + ".");
+  }
 }

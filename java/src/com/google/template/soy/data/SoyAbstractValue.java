@@ -40,25 +40,18 @@ public abstract class SoyAbstractValue implements SoyValue {
     return this;
   }
 
-  @Override @Nonnull public ResolveStatus status() {
-    return ResolveStatus.ready();
+  @Override @Nonnull public RenderResult status() {
+    return RenderResult.done();
   }
 
-  /**
-   * Note: Even though we provide a default implementation for equals(SoyValueProvider), subclasses
-   * must still implement equals(SoyValue).
-   *
-   * {@inheritDoc}
-   */
-  @Override public boolean equals(SoyValueProvider other) {
-    if (other instanceof SoyValue) {
-      return this.equals((SoyValue) other);
-    } else {
-      // Since 'other' is an unresolved SoyValueProvider, we let it decide how to handle equals(),
-      // e.g. it may decide to resolve itself before doing the comparison.
-      return other.equals(this);
-    }
+  @Override public RenderResult renderAndResolve(AdvisingAppendable appendable, boolean isLast)
+      throws IOException {
+    render(appendable);
+    return RenderResult.done();
   }
+
+  // Force subtypes to implement equals
+  @Override public abstract boolean equals(Object other);
 
 
   @Override public boolean booleanValue() {
@@ -93,12 +86,5 @@ public abstract class SoyAbstractValue implements SoyValue {
   @Override public String stringValue() {
     throw new SoyDataException(
         "Expecting string value but instead encountered type " + getClass().getSimpleName());
-  }
-
-  @Override public RenderResult render(AdvisingAppendable appendable, boolean isLast)
-      throws IOException {
-    // Default implementation, just render.
-    render(appendable);
-    return RenderResult.done();
   }
 }

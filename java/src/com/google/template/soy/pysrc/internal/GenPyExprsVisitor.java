@@ -17,27 +17,29 @@
 package com.google.template.soy.pysrc.internal;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 import com.google.template.soy.base.internal.BaseUtils;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.exprtree.Operator;
+import com.google.template.soy.msgs.internal.MsgUtils;
 import com.google.template.soy.pysrc.internal.MsgFuncGenerator.MsgFuncGeneratorFactory;
 import com.google.template.soy.pysrc.internal.TranslateToPyExprVisitor.TranslateToPyExprVisitorFactory;
 import com.google.template.soy.pysrc.restricted.PyExpr;
 import com.google.template.soy.pysrc.restricted.PyExprUtils;
 import com.google.template.soy.pysrc.restricted.PyStringExpr;
 import com.google.template.soy.pysrc.restricted.SoyPySrcPrintDirective;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallNode;
 import com.google.template.soy.soytree.CallParamContentNode;
+import com.google.template.soy.soytree.CssNode;
 import com.google.template.soy.soytree.IfCondNode;
 import com.google.template.soy.soytree.IfElseNode;
 import com.google.template.soy.soytree.IfNode;
 import com.google.template.soy.soytree.MsgFallbackGroupNode;
-import com.google.template.soy.soytree.MsgNode;
 import com.google.template.soy.soytree.PrintDirectiveNode;
 import com.google.template.soy.soytree.PrintNode;
 import com.google.template.soy.soytree.RawTextNode;
@@ -205,34 +207,52 @@ public class GenPyExprsVisitor extends AbstractSoyNodeVisitor<List<PyExpr>> {
   }
 
   @Override protected void visitMsgFallbackGroupNode(MsgFallbackGroupNode node) {
-    GenPyExprsVisitor genPyExprsVisitor = genPyExprsVisitorFactory.create(localVarExprs);
+    PyExpr msg = msgFuncGeneratorFactory.create(node.getMsg(), localVarExprs).getPyExpr();
 
-    // MsgFallbackGroupNode could only have 1 or 2 child, see TemplateParseTest.java
-    if (node.numChildren() == 1) {
-      visitChildren(node);
-    } else {
+    // MsgFallbackGroupNode could only have one child or two children. See MsgFallbackGroupNode.
+    if (node.hasFallbackMsg()) {
       StringBuilder pyExprTextSb = new StringBuilder();
-      List<PyExpr> firstMsgPyExpr = genPyExprsVisitor.exec(node.getChild(0));
-      List<PyExpr> fallbackMsgPyExpr = genPyExprsVisitor.exec(node.getChild(1));
+      PyExpr fallbackMsg = msgFuncGeneratorFactory.create(
+          node.getFallbackMsg(), localVarExprs).getPyExpr();
 
       // Build Python ternary expression: a if cond else c
-      pyExprTextSb.append(
-          PyExprUtils.concatPyExprs(firstMsgPyExpr).toPyString().getText());
-      pyExprTextSb.append(" if ");
-      // TODO(steveyang): replace node.getId() with computed msgId once MsgNode is implemented
-      pyExprTextSb.append("is_msg_available(" + node.getId() + ")");
+      pyExprTextSb.append(msg.getText()).append(" if ");
 
-      pyExprTextSb.append(" else ");
-      pyExprTextSb.append(
-          PyExprUtils.concatPyExprs(fallbackMsgPyExpr).toPyString().getText());
-      pyExprs.add(new PyStringExpr(pyExprTextSb.toString(),
-          PyExprUtils.pyPrecedenceForOperator(Operator.CONDITIONAL)));
+      // The fallback message is only used if the first message is not available, but the fallback
+      // is. So availability of both messages must be tested.
+      long firstId = MsgUtils.computeMsgIdForDualFormat(node.getMsg());
+      long secondId = MsgUtils.computeMsgIdForDualFormat(node.getFallbackMsg());
+      pyExprTextSb.append(PyExprUtils.TRANSLATOR_NAME + ".is_msg_available(" + firstId + ")")
+          .append(" or not ")
+          .append(PyExprUtils.TRANSLATOR_NAME + ".is_msg_available(" + secondId + ")");
+
+      pyExprTextSb.append(" else ").append(fallbackMsg.getText());
+      msg = new PyStringExpr(pyExprTextSb.toString(),
+          PyExprUtils.pyPrecedenceForOperator(Operator.CONDITIONAL));
     }
+
+    // Escaping directives apply to messages, especially in attribute context.
+    for (String directiveName : node.getEscapingDirectiveNames()) {
+      SoyPySrcPrintDirective directive = soyPySrcDirectivesMap.get(directiveName);
+      Preconditions.checkNotNull(
+          directive, "Contextual autoescaping produced a bogus directive: %s", directiveName);
+      msg = directive.applyForPySrc(msg, ImmutableList.<PyExpr>of());
+    }
+    pyExprs.add(msg);
   }
 
-  @Override protected void visitMsgNode(MsgNode node) {
-    MsgFuncGenerator msgFuncGenerator = msgFuncGeneratorFactory.create(node, localVarExprs);
-    pyExprs.add(msgFuncGenerator.getPyExpr());
+  @Override protected void visitCssNode(CssNode node) {
+    StringBuilder sb = new StringBuilder("runtime.get_css_name(");
+
+    ExprRootNode componentNameExpr = node.getComponentNameExpr();
+    if (componentNameExpr != null) {
+      TranslateToPyExprVisitor translator = translateToPyExprVisitorFactory.create(localVarExprs);
+      PyExpr basePyExpr = translator.exec(componentNameExpr);
+      sb.append(basePyExpr.getText()).append(", ");
+    }
+
+    sb.append("'").append(node.getSelectorText()).append("')");
+    pyExprs.add(new PyExpr(sb.toString(), Integer.MAX_VALUE));
   }
 
   /**

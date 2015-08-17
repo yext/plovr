@@ -16,21 +16,12 @@
 
 package com.google.template.soy.conformance;
 
-import com.google.common.collect.ImmutableList;
-import com.google.template.soy.base.SoySyntaxException;
-import com.google.template.soy.soytree.SoyFileSetNode;
-
-
 /**
- * Interface for collecting Soy conformance violations.
+ * Marker interface for collecting Soy conformance violations.
  *
  * @author brndn@google.com (Brendan Linn)
  */
 public interface CheckConformance {
-  /**
-   * Runs the conformance checks from the given AST root.
-   * @return The list of conformance violations.
-   */
-  ImmutableList<SoySyntaxException> getViolations(SoyFileSetNode root);
-}
 
+  void check(ConformanceInput input);
+}

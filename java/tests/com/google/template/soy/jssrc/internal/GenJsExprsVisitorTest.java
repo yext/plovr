@@ -22,15 +22,15 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.template.soy.ErrorReporterModule;
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.exprtree.Operator;
 import com.google.template.soy.jssrc.SoyJsSrcOptions;
-import com.google.template.soy.jssrc.SoyJsSrcOptions.CodeStyle;
 import com.google.template.soy.jssrc.internal.GenJsExprsVisitor.GenJsExprsVisitorFactory;
 import com.google.template.soy.jssrc.restricted.JsExpr;
 import com.google.template.soy.shared.SharedTestUtils;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.SoyNode;
 
@@ -47,8 +47,8 @@ import java.util.Map;
  */
 public final class GenJsExprsVisitorTest extends TestCase {
 
-
-  private static final Injector INJECTOR = Guice.createInjector(new JsSrcModule());
+  private static final Injector INJECTOR =
+      Guice.createInjector(new ErrorReporterModule(), new JsSrcModule());
 
   private static final Deque<Map<String, JsExpr>> LOCAL_VAR_TRANSLATIONS =
       new ArrayDeque<Map<String, JsExpr>>();
@@ -167,28 +167,25 @@ public final class GenJsExprsVisitorTest extends TestCase {
 
 
   public void testCall() {
-
-    jsSrcOptions.setCodeStyle(CodeStyle.CONCAT);
-
     assertGeneratedJsExprs(
-        "{call name=\"some.func\" data=\"all\" /}",
+        "{call some.func data=\"all\" /}",
         ImmutableList.of(new JsExpr("some.func(opt_data)", Integer.MAX_VALUE)));
 
     assertGeneratedJsExprs(
-        "{call name=\"some.func\" data=\"$boo.foo\" /}",
+        "{call some.func data=\"$boo.foo\" /}",
         ImmutableList.of(new JsExpr("some.func(opt_data.boo.foo)", Integer.MAX_VALUE)));
 
     String soyNodeCode =
-        "{call name=\"some.func\"}" +
-        "  {param key=\"goo\" value=\"$moo\" /}" +
+        "{call some.func}" +
+        "  {param goo: $moo /}" +
         "{/call}";
     assertGeneratedJsExprs(
         soyNodeCode,
         ImmutableList.of(new JsExpr("some.func({goo: opt_data.moo})", Integer.MAX_VALUE)));
 
     soyNodeCode =
-        "{call name=\"some.func\" data=\"$boo\"}" +
-        "  {param key=\"goo\"}Blah{/param}" +
+        "{call some.func data=\"$boo\"}" +
+        "  {param goo}Blah{/param}" +
         "{/call}";
     assertGeneratedJsExprs(
         soyNodeCode,
@@ -209,10 +206,9 @@ public final class GenJsExprsVisitorTest extends TestCase {
         soyNodeCode,
         ImmutableList.of(new JsExpr(expectedJsExprText, Operator.CONDITIONAL.getPrecedence())));
 
-    jsSrcOptions.setCodeStyle(CodeStyle.CONCAT);
     soyNodeCode =
-        "{call name=\"some.func\"}" +
-        "  {param key=\"goo\"}{lb}{index($goo)}{rb} is {$goo.moo}{/param}" +
+        "{call some.func}" +
+        "  {param goo}{lb}{index($goo)}{rb} is {$goo.moo}{/param}" +
         "{/call}";
     expectedJsExprText =
         "some.func({goo: '{' + gooIndex8 + '} is ' + gooData8.moo})";

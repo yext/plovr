@@ -21,7 +21,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
+import com.ibm.icu.util.ULocale;
+
 import java.util.Objects;
 
 import javax.annotation.Nullable;
@@ -89,7 +90,7 @@ public final class SoyMsg {
   public SoyMsg(
       long id, long altId, @Nullable String localeString, @Nullable String meaning,
       @Nullable String desc, boolean isHidden, @Nullable String contentType,
-      @Nullable String sourcePath, boolean isPlrselMsg, List<SoyMsgPart> parts) {
+      @Nullable String sourcePath, boolean isPlrselMsg, Iterable<? extends SoyMsgPart> parts) {
 
     checkArgument(id >= 0L);
     checkArgument(altId >= -1L);
@@ -132,7 +133,7 @@ public final class SoyMsg {
   public SoyMsg(
       long id, @Nullable String localeString, @Nullable String meaning, @Nullable String desc,
       boolean isHidden, @Nullable String contentType, @Nullable String sourcePath,
-      List<SoyMsgPart> parts) {
+      Iterable<? extends SoyMsgPart> parts) {
     this(id, -1L, localeString, meaning, desc, isHidden, contentType, sourcePath, false, parts);
   }
 
@@ -147,7 +148,8 @@ public final class SoyMsg {
    * @param parts The parts that make up the message content.
    */
   public SoyMsg(
-      long id, @Nullable String localeString, boolean isPlrselMsg, List<SoyMsgPart> parts) {
+      long id, @Nullable String localeString, boolean isPlrselMsg,
+      Iterable<? extends SoyMsgPart> parts) {
     this(id, -1L, localeString, null, null, false, null, null, isPlrselMsg, parts);
   }
 
@@ -155,6 +157,11 @@ public final class SoyMsg {
   /** Returns the language/locale string. */
   public String getLocaleString() {
     return localeString;
+  }
+
+  public ULocale getLocale() {
+    // TODO(lukes): Consider storing this in preference to the localeString
+    return new ULocale(localeString);
   }
 
   /** Returns the unique id for this message (same across all translations). */

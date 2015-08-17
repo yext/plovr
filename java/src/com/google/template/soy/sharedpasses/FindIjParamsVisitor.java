@@ -19,8 +19,8 @@ package com.google.template.soy.sharedpasses;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.sharedpasses.FindTransitiveDepTemplatesVisitor.TransitiveDepTemplatesInfo;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.SoyFileNode;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.SoytreeUtils;
@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nullable;
-
 
 /**
  * Visitor for finding the injected params used by a given template.
@@ -62,32 +61,15 @@ public class FindIjParamsVisitor {
     /** Multimap from injected param key to transitive callees that use the param. */
     public final ImmutableMultimap<String, TemplateNode> ijParamToCalleesMultimap;
 
-    /** Whether the template (that the pass was run on) may have injected params indirectly used in
-     *  external basic calls. */
-    public final boolean mayHaveIjParamsInExternalCalls;
-
-    /** Whether the template (that the pass was run on) may have injected params indirectly used in
-     *  external delegate calls. */
-    public final boolean mayHaveIjParamsInExternalDelCalls;
-
-
     /**
      * @param ijParamToCalleesMultimap Multimap from injected param key to transitive callees that
      *     use the param.
-     * @param mayHaveIjParamsInExternalCalls Whether the template (that the pass was run on) may
-     *     have injected params indirectly used in external basic calls.
-     * @param mayHaveIjParamsInExternalDelCalls Whether the template (that the pass was run on) may
-     *     have injected params indirectly used in external delegate calls.
      */
     public IjParamsInfo(
-        ImmutableMultimap<String, TemplateNode> ijParamToCalleesMultimap,
-        boolean mayHaveIjParamsInExternalCalls, boolean mayHaveIjParamsInExternalDelCalls) {
+        ImmutableMultimap<String, TemplateNode> ijParamToCalleesMultimap) {
       this.ijParamToCalleesMultimap = ijParamToCalleesMultimap;
       this.ijParamSet = ImmutableSortedSet.copyOf(ijParamToCalleesMultimap.keySet());
-      this.mayHaveIjParamsInExternalCalls = mayHaveIjParamsInExternalCalls;
-      this.mayHaveIjParamsInExternalDelCalls = mayHaveIjParamsInExternalDelCalls;
     }
-
   }
 
 
@@ -157,8 +139,7 @@ public class FindIjParamsVisitor {
         }
       }
 
-      IjParamsInfo ijParamsInfo = new IjParamsInfo(
-          ijParamToCalleesMultimapBuilder.build(), depsInfo.hasExternalCalls, depsInfo.hasDelCalls);
+      IjParamsInfo ijParamsInfo = new IjParamsInfo(ijParamToCalleesMultimapBuilder.build());
       depsInfoToIjParamsInfoMap.put(depsInfo, ijParamsInfo);
     }
 

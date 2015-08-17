@@ -700,13 +700,22 @@ compare the output of both renderers. However, we may select particular
 (legacy) corners of the language to <strong>not support. </strong>Including, but
 not limited to:
 
-  * SoyDoc declared params
-     * These aren’t actually difficult to support, but i would like to push
-       people to new stuff and this is a carrot
-  * $ij.foo style ij params.  {@inject foo: any} should be sufficient and has
-    simpler semantics
   * strict autoescaping is mandatory
   * ...more to come...
+
+Additionally, there are some runtime differences around error behavior when
+migrating from ToFu:
+
+  * Missing non-optional template params are flagged as an error at call-time,
+    ToFu only flags this error when you access the param.
+  * ToFu throws SoyDataException for runtime errors in templates.  JbcSrc will
+    throw standard java exceptions (NullPointerException, ClassCastException)
+    as appropriate.
+  * ToFu allows (and defaults!) the `$ij` record to be `null` and allows null
+    safe access to `$ij` variables (e.g. `$ij?.foo`).  jbcsrc allows for the
+    null safe access syntax for compatibility, but the `$ij` record itself is
+    never null (And so in jbcsrc such accesses are equivalent to non-nullsafe
+    accesses).
 
 A Bytecode Primer
 -----------------

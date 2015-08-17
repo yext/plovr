@@ -16,39 +16,34 @@
 
 package com.google.template.soy.jbcsrc;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.template.soy.jbcsrc.CompiledTemplateMetadata.RENDER_METHOD;
 import static com.google.template.soy.jbcsrc.FieldRef.createField;
 import static com.google.template.soy.jbcsrc.FieldRef.createFinalField;
 import static com.google.template.soy.jbcsrc.LocalVariable.createLocal;
 import static com.google.template.soy.jbcsrc.LocalVariable.createThisVar;
+import static com.google.template.soy.jbcsrc.StandardNames.IJ_FIELD;
+import static com.google.template.soy.jbcsrc.StandardNames.PARAMS_FIELD;
+import static com.google.template.soy.jbcsrc.StandardNames.STATE_FIELD;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.template.soy.data.SoyDataException;
 import com.google.template.soy.data.SoyRecord;
 import com.google.template.soy.data.SoyValueProvider;
-import com.google.template.soy.exprtree.FieldAccessNode;
-import com.google.template.soy.exprtree.FunctionNode;
-import com.google.template.soy.exprtree.ItemAccessNode;
-import com.google.template.soy.exprtree.VarDefn;
-import com.google.template.soy.exprtree.VarRefNode;
-import com.google.template.soy.jbcsrc.Expression.SimpleExpression;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.jbcsrc.api.AdvisingAppendable;
 import com.google.template.soy.jbcsrc.api.CompiledTemplate;
 import com.google.template.soy.jbcsrc.api.RenderContext;
+import com.google.template.soy.jbcsrc.api.TemplateMetadata;
 import com.google.template.soy.soytree.CallParamContentNode;
 import com.google.template.soy.soytree.CallParamValueNode;
 import com.google.template.soy.soytree.LetContentNode;
 import com.google.template.soy.soytree.LetValueNode;
-import com.google.template.soy.soytree.SoyNode;
+import com.google.template.soy.soytree.TemplateNode;
 import com.google.template.soy.soytree.defn.LocalVar;
 import com.google.template.soy.soytree.defn.TemplateParam;
 
-import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -61,27 +56,35 @@ import java.util.List;
 final class TemplateCompiler {
   private static final String[] INTERFACES = { Type.getInternalName(CompiledTemplate.class) };
 
+  private final CompiledTemplateRegistry registry;
   private final FieldRef paramsField;
   private final FieldRef ijField;
   private final FieldRef stateField;
   private final UniqueNameGenerator fieldNames = UniqueNameGenerator.forFieldNames();
   private final ImmutableMap<String, FieldRef> paramFields;
   private final CompiledTemplateMetadata template;
-  private ClassWriter writer;
+  private final InnerClasses innerClasses;
+  private final ErrorReporter errorReporter;
+  private SoyClassWriter writer;
 
-  TemplateCompiler(CompiledTemplateMetadata template) {
+  TemplateCompiler(CompiledTemplateRegistry registry, CompiledTemplateMetadata template,
+      ErrorReporter errorReporter) {
+    this.registry = registry;
     this.template = template;
-    this.paramsField = createFinalField(template.typeInfo(), "$params", SoyRecord.class);
-    this.ijField = createFinalField(template.typeInfo(), "$ij", SoyRecord.class);
-    this.stateField = createField(template.typeInfo(), "$state", Type.INT_TYPE);
-    fieldNames.claimName("$params");
-    fieldNames.claimName("$ij");
-    fieldNames.claimName("$state");
+    this.errorReporter = errorReporter;
+    TypeInfo ownerType = template.typeInfo();
+    this.paramsField = createFinalField(ownerType, PARAMS_FIELD, SoyRecord.class).asNonNull();
+    this.ijField = createFinalField(ownerType, IJ_FIELD, SoyRecord.class).asNonNull();
+    this.stateField = createField(ownerType, STATE_FIELD, Type.INT_TYPE);
+    this.innerClasses = new InnerClasses(ownerType);
+    fieldNames.claimName(PARAMS_FIELD);
+    fieldNames.claimName(IJ_FIELD);
+    fieldNames.claimName(STATE_FIELD);
     ImmutableMap.Builder<String, FieldRef> builder = ImmutableMap.builder();
     for (TemplateParam param : template.node().getAllParams()) {
       String name = param.name();
       fieldNames.claimName(name);
-      builder.put(name, createFinalField(template.typeInfo(), name, SoyValueProvider.class));
+      builder.put(name, createFinalField(ownerType, name, SoyValueProvider.class).asNonNull());
     }
     this.paramFields = builder.build();
   }
@@ -112,15 +115,16 @@ final class TemplateCompiler {
     // TODO(lukes): don't generate factory if the template is private?  The factories are only
     // useful to instantiate templates for calls from java.  Soy->Soy calls should invoke 
     // constructors directly.
-    classes.add(new TemplateFactoryCompiler(template).compile());
+    new TemplateFactoryCompiler(template, innerClasses).compile();
 
-    writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+    writer = new SoyClassWriter();
     writer.visit(Opcodes.V1_7, 
         Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER + Opcodes.ACC_FINAL,
         template.typeInfo().type().getInternalName(), 
         null, // not a generic type
         "java/lang/Object", // superclass
         INTERFACES);
+    generateTemplateMetadata();
     // TODO(lukes): this associates a file name that will ultimately appear in exceptions as well
     // as be used by debuggers to 'attach source'.  We may want to consider placing our generated
     // classes in packages such that they are in the same classpath relative location as the source
@@ -129,7 +133,7 @@ final class TemplateCompiler {
         template.node().getSourceLocation().getFileName(),
         // No JSR-45 style source maps, instead we write the line numbers in the normal locations.
         null);
-
+    
     stateField.defineField(writer);
     paramsField.defineField(writer);
     ijField.defineField(writer);
@@ -137,61 +141,72 @@ final class TemplateCompiler {
       field.defineField(writer);
     }
 
-    generateConstructor();
-    generateRenderMethod();
+    Statement fieldInitializers = generateRenderMethod();
+
+    generateConstructor(fieldInitializers);
     
+    innerClasses.registerAllInnerClasses(writer);
     writer.visitEnd();
+
     classes.add(ClassData.create(template.typeInfo(), writer.toByteArray()));
+    classes.addAll(innerClasses.getInnerClassData());
+    writer = null;
     return classes;
   }
 
-  private void generateRenderMethod() {
+  /** Writes a {@link TemplateMetadata} to the generated class. */
+  private void generateTemplateMetadata() {
+    AnnotationVisitor annotationWriter = 
+        writer.visitAnnotation(
+            Type.getDescriptor(TemplateMetadata.class), 
+            true /* visible at runtime */);
+    String kind = template.node().getContentKind() == null 
+        ? ""
+        : template.node().getContentKind().name(); 
+    annotationWriter.visit("contentKind", kind);
+    annotationWriter.visitEnd();
+  }
+
+  private Statement generateRenderMethod() {
     final Label start = new Label();
     final Label end = new Label();
     final LocalVariable thisVar = createThisVar(template.typeInfo(), start, end);
     final LocalVariable appendableVar = 
-        createLocal("appendable", 1, Type.getType(AdvisingAppendable.class), start, end);
+        createLocal("appendable", 1, Type.getType(AdvisingAppendable.class), start, end)
+            .asNonNullable();
     final LocalVariable contextVar = 
-        createLocal("context", 2, Type.getType(RenderContext.class), start, end);
-    final VariableSet variables = 
-        new VariableSet(fieldNames, template.typeInfo(), thisVar, RENDER_METHOD);
-    final Statement nodeBody = 
-        new SoyNodeCompiler(
-            new DetachState(variables, thisVar, stateField),
+        createLocal("context", 2, Type.getType(RenderContext.class), start, end)
+            .asNonNullable();
+    final VariableSet variableSet = 
+        new VariableSet(fieldNames, template.typeInfo(), thisVar, template.renderMethod().method());
+    TemplateNode node = template.node();
+    TemplateVariables variables = 
+        new TemplateVariables(variableSet, thisVar, contextVar);
+    final Statement methodBody =
+        SoyNodeCompiler.create(
+            registry,
+            innerClasses,
+            stateField,
+            thisVar,
+            AppendableExpression.forLocal(appendableVar),
+            variableSet,
             variables,
-            appendableVar,
-            contextVar,
-            new ExprCompiler(variables)).compile(template.node());
-    final Expression done = MethodRef.RENDER_RESULT_DONE.invoke();
-    Statement fullMethodBody = new Statement() {
-      @Override void doGen(GeneratorAdapter adapter) {
+            errorReporter).compile(node);
+    final Statement returnDone = Statement.returnExpression(MethodRef.RENDER_RESULT_DONE.invoke());
+    new Statement() {
+      @Override void doGen(CodeBuilder adapter) {
         adapter.mark(start);
-        nodeBody.gen(adapter);
-        done.gen(adapter);
+        methodBody.gen(adapter);
         adapter.mark(end);
-        adapter.returnValue();
+        returnDone.gen(adapter);
 
         thisVar.tableEntry(adapter);
         appendableVar.tableEntry(adapter);
         contextVar.tableEntry(adapter);
-        variables.generateTableEntries(adapter);
+        variableSet.generateTableEntries(adapter);
       }
-    };
-    GeneratorAdapter ga = new GeneratorAdapter(
-        Opcodes.ACC_PUBLIC,
-        RENDER_METHOD,
-        null /* no generic signature */,
-        new Type[] { Type.getType(IOException.class) },
-        writer);
-    fullMethodBody.gen(ga);
-    try {
-      ga.endMethod();
-    } catch (Throwable t) {
-      // ASM fails in bizarre ways, attach a trace of the thing we tried to generate to the 
-      // exception.
-      throw new RuntimeException("Failed to generate method:\n" + fullMethodBody, t);
-    }
-    variables.defineFields(writer);
+    }.writeMethod(Opcodes.ACC_PUBLIC, template.renderMethod().method(), IOException.class, writer);
+    return variableSet.defineFields(writer);
   }
 
   /** 
@@ -199,8 +214,10 @@ final class TemplateCompiler {
    * params.
    * 
    * <p>This constructor is called by the generate factory classes.
+   *
+   * @param fieldInitializers additional statements to initialize fields (other than params)
    */
-  private void generateConstructor() {
+  private void generateConstructor(Statement fieldInitializers) {
     final Label start = new Label();
     final Label end = new Label();
     final LocalVariable thisVar = createThisVar(template.typeInfo(), start, end);
@@ -208,14 +225,15 @@ final class TemplateCompiler {
         createLocal("params", 1, Type.getType(SoyRecord.class), start, end);
     final LocalVariable ijVar = createLocal("ij", 2, Type.getType(SoyRecord.class), start, end);
     final List<Statement> assignments = new ArrayList<>();
+    assignments.add(fieldInitializers);  // for other fields needed by the compiler.
     assignments.add(paramsField.putInstanceField(thisVar, paramsVar));
     assignments.add(ijField.putInstanceField(thisVar, ijVar));
     for (final TemplateParam param : template.node().getAllParams()) {
-      Expression paramProvider = getAndCheckParam(paramsVar, ijVar, param);
+      Expression paramProvider = getParam(paramsVar, ijVar, param);
       assignments.add(paramFields.get(param.name()).putInstanceField(thisVar, paramProvider));
     }
     Statement constructorBody = new Statement() {
-      @Override void doGen(GeneratorAdapter ga) {
+      @Override void doGen(CodeBuilder ga) {
         ga.mark(start);
         // call super()
         thisVar.gen(ga);
@@ -230,20 +248,7 @@ final class TemplateCompiler {
         ijVar.tableEntry(ga);
       }
     };
-    GeneratorAdapter ga = new GeneratorAdapter(
-        Opcodes.ACC_PUBLIC, 
-        CompiledTemplateMetadata.GENERATED_CONSTRUCTOR, 
-        null, // no generic signature
-        null, // no checked exception
-        writer);
-    constructorBody.gen(ga);
-    try {
-      ga.endMethod();
-    } catch (Throwable t) {
-      // ASM fails in bizarre ways, attach a trace of the thing we tried to generate to the 
-      // exception.
-      throw new RuntimeException("Failed to generate method:\n" + constructorBody, t);
-    }
+    constructorBody.writeMethod(Opcodes.ACC_PUBLIC, template.constructor().method(), writer);
   }
 
   /**
@@ -251,66 +256,48 @@ final class TemplateCompiler {
    * enforces the {@link TemplateParam#isRequired()} flag, throwing SoyDataException if a required
    * parameter is missing. 
    */
-  private Expression getAndCheckParam(final LocalVariable paramsVar, final LocalVariable ijVar,
-      final TemplateParam param) {
+  private static Expression getParam(
+      LocalVariable paramsVar, LocalVariable ijVar, TemplateParam param) {
+    Expression fieldName = BytecodeUtils.constant(param.name());
     Expression record = param.isInjected() ? ijVar : paramsVar;
-    final Expression provider = MethodRef.SOY_RECORD_GET_FIELD_PROVIDER
-        .invoke(record, BytecodeUtils.constant(param.name()));
-    final Expression nullData = FieldRef.NULL_DATA_INSTANCE.accessor();
-    return new SimpleExpression(Type.getType(SoyValueProvider.class), false) {
-      @Override void doGen(GeneratorAdapter adapter) {
-        provider.gen(adapter);
-        adapter.dup();
-        Label nonNull = new Label();
-        adapter.ifNonNull(nonNull);
-        if (param.isRequired()) {
-          adapter.throwException(Type.getType(SoyDataException.class), 
-              "Required " + (param.isInjected() ? "@inject" : "@param") + ": '" 
-                  + param.name() + "' is undefined.");
-        } else {
-          // non required params default to null
-          adapter.pop();  // pop the extra copy of provider that we dup()'d above
-          nullData.gen(adapter);
-        }
-        adapter.mark(nonNull);
-        // At the end there should be a single SoyValueProvider on the stack.
-      }
-    };
+    // NOTE: for compatibility with Tofu and jssrc we do not check for missing required parameters
+    // here instead they will just turn into null.  Existing templates depend on this.
+    return MethodRef.RUNTIME_GET_FIELD_PROVIDER.invoke(record, fieldName);
   }
 
-  // TODO(lukes): support these expressions, most likely by extracting sufficient data structures 
-  // such that they can be implemented directly in ExpressionCompiler.
-  private static final class ExprCompiler extends ExpressionCompiler {
-    private final VariableSet variables;
+  private final class TemplateVariables implements VariableLookup {
+    private final VariableSet variableSet;
+    private final Expression thisRef;
+    private final Expression renderContext;
 
-    ExprCompiler(VariableSet variables) {
-      this.variables = checkNotNull(variables);
+    TemplateVariables(VariableSet variableSet, Expression thisRef, Expression renderContext) {
+      this.variableSet = variableSet;
+      this.thisRef = thisRef;
+      this.renderContext = renderContext;
     }
 
-    @Override protected SoyExpression visitVarRefNode(VarRefNode node) {
-      VarDefn defn = node.getDefnDecl();
-      if (defn.kind() == VarDefn.Kind.LOCAL_VAR) {
-        LocalVar local = (LocalVar) defn;
-        if (local.declaringNode().getKind() == SoyNode.Kind.FOR_NODE) {
-          // an index variable in a {for $index in range(...)} statement
-          // These are special because they do not need any attaching/detaching logic
-          return variables.getVariable(node.getName()).expr();
-        }
-      }
-      // TODO(lukes): add support for params, ijs, and other locals
-      throw new UnsupportedOperationException();
+    @Override public Expression getParam(TemplateParam param) {
+      return paramFields.get(param.name()).accessor(thisRef);
     }
 
-    @Override protected SoyExpression visitFieldAccessNode(FieldAccessNode node) {
-      throw new UnsupportedOperationException();
+    @Override public Expression getLocal(LocalVar local) {
+      return variableSet.getVariable(local.name()).local();
     }
 
-    @Override protected SoyExpression visitItemAccessNode(ItemAccessNode node) {
-      throw new UnsupportedOperationException();
+    @Override public Expression getLocal(SyntheticVarName varName) {
+      return variableSet.getVariable(varName).local();
     }
 
-    @Override protected SoyExpression visitFunctionNode(FunctionNode node) {
-      throw new UnsupportedOperationException();
+    @Override public Expression getRenderContext() {
+      return renderContext;
+    }
+
+    @Override public Expression getParamsRecord() {
+      return paramsField.accessor(thisRef);
+    }
+
+    @Override public Expression getIjRecord() {
+      return ijField.accessor(thisRef);
     }
   }
 }

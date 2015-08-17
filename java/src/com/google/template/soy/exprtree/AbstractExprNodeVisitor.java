@@ -18,6 +18,7 @@ package com.google.template.soy.exprtree;
 
 import com.google.template.soy.basetree.AbstractNodeVisitor;
 import com.google.template.soy.basetree.ParentNode;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.ExprNode.OperatorNode;
 import com.google.template.soy.exprtree.ExprNode.ParentExprNode;
 import com.google.template.soy.exprtree.ExprNode.PrimitiveNode;
@@ -38,7 +39,6 @@ import com.google.template.soy.exprtree.OperatorNodes.NullCoalescingOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.OrOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.PlusOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.TimesOpNode;
-import com.google.template.soy.soyparse.ErrorReporter;
 
 /**
  * Abstract base class for all ExprNode visitors. A visitor is basically a function implemented for
@@ -73,7 +73,7 @@ public abstract class AbstractExprNodeVisitor<R> extends AbstractNodeVisitor<Exp
     super(errorReporter);
   }
 
-  @Override protected void visit(ExprNode node) {
+  @Override protected final void visit(ExprNode node) {
 
     switch (node.getKind()) {
 
@@ -119,7 +119,6 @@ public abstract class AbstractExprNodeVisitor<R> extends AbstractNodeVisitor<Exp
       default: throw new UnsupportedOperationException();
     }
   }
-
 
   /**
    * Helper to visit all the children of a node, in order.

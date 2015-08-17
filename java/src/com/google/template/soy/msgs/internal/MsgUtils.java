@@ -17,12 +17,10 @@
 package com.google.template.soy.msgs.internal;
 
 import com.google.common.collect.ImmutableList;
-import com.google.template.soy.internal.base.Pair;
 import com.google.template.soy.msgs.restricted.SoyMsgPart;
 import com.google.template.soy.msgs.restricted.SoyMsgPlaceholderPart;
 import com.google.template.soy.msgs.restricted.SoyMsgPluralCaseSpec;
 import com.google.template.soy.msgs.restricted.SoyMsgPluralPart;
-import com.google.template.soy.msgs.restricted.SoyMsgPluralRemainderPart;
 import com.google.template.soy.msgs.restricted.SoyMsgRawTextPart;
 import com.google.template.soy.msgs.restricted.SoyMsgSelectPart;
 import com.google.template.soy.soytree.CaseOrDefaultNode;
@@ -31,7 +29,6 @@ import com.google.template.soy.soytree.MsgPlaceholderNode;
 import com.google.template.soy.soytree.MsgPluralCaseNode;
 import com.google.template.soy.soytree.MsgPluralDefaultNode;
 import com.google.template.soy.soytree.MsgPluralNode;
-import com.google.template.soy.soytree.MsgPluralRemainderNode;
 import com.google.template.soy.soytree.MsgSelectCaseNode;
 import com.google.template.soy.soytree.MsgSelectDefaultNode;
 import com.google.template.soy.soytree.MsgSelectNode;
@@ -191,9 +188,6 @@ public class MsgUtils {
       } else if (child instanceof MsgPlaceholderNode) {
         String placeholderName = msgNode.getPlaceholderName((MsgPlaceholderNode) child);
         msgParts.add(new SoyMsgPlaceholderPart(placeholderName));
-      } else if (child instanceof MsgPluralRemainderNode) {
-        msgParts.add(new SoyMsgPluralRemainderPart(
-            msgNode.getPluralVarName(child.getNearestAncestor(MsgPluralNode.class))));
       } else if (child instanceof MsgPluralNode) {
         msgParts.add(buildMsgPartForPlural((MsgPluralNode) child, msgNode));
       } else if (child instanceof MsgSelectNode) {
@@ -215,7 +209,7 @@ public class MsgUtils {
       MsgPluralNode msgPluralNode, MsgNode msgNode) {
 
     // This is the list of the cases.
-    ImmutableList.Builder<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>> pluralCases =
+    ImmutableList.Builder<SoyMsgPart.Case<SoyMsgPluralCaseSpec>> pluralCases =
         ImmutableList.builder();
 
     for (CaseOrDefaultNode child : msgPluralNode.getChildren()) {
@@ -233,7 +227,7 @@ public class MsgUtils {
         throw new AssertionError("Unidentified node under a plural node.");
       }
 
-      pluralCases.add(Pair.of(caseSpec, caseMsgParts));
+      pluralCases.add(SoyMsgPart.Case.create(caseSpec, caseMsgParts));
     }
 
     return new SoyMsgPluralPart(
@@ -251,7 +245,7 @@ public class MsgUtils {
       MsgSelectNode msgSelectNode, MsgNode msgNode) {
 
     // This is the list of the cases.
-    ImmutableList.Builder<Pair<String, ImmutableList<SoyMsgPart>>> selectCases =
+    ImmutableList.Builder<SoyMsgPart.Case<String>> selectCases =
         ImmutableList.builder();
 
     for (CaseOrDefaultNode child : msgSelectNode.getChildren()) {
@@ -264,7 +258,7 @@ public class MsgUtils {
       } else {
         throw new AssertionError("Unidentified node under a select node.");
       }
-      selectCases.add(Pair.of(caseValue, caseMsgParts));
+      selectCases.add(SoyMsgPart.Case.create(caseValue, caseMsgParts));
     }
 
     return new SoyMsgSelectPart(msgNode.getSelectVarName(msgSelectNode), selectCases.build());

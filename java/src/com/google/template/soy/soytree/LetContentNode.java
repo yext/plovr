@@ -17,12 +17,13 @@
 package com.google.template.soy.soytree;
 
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
 import com.google.template.soy.basetree.MixinParentNode;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.soytree.SoyNode.RenderUnitNode;
 
 import java.util.List;
@@ -37,7 +38,7 @@ import javax.annotation.Nullable;
  */
 public final class LetContentNode extends LetNode implements RenderUnitNode {
 
-  private static final SoyError NON_SELF_ENDING_WITH_VALUE
+  public static final SoyError NON_SELF_ENDING_WITH_VALUE
       = SoyError.of("A ''let'' tag should contain a value if and only if it is also self-ending "
           + "(with a trailing ''/'').");
 
@@ -64,9 +65,9 @@ public final class LetContentNode extends LetNode implements RenderUnitNode {
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private LetContentNode(LetContentNode orig) {
-    super(orig);
-    this.parentMixin = new MixinParentNode<>(orig.parentMixin, this);
+  private LetContentNode(LetContentNode orig, CopyState copyState) {
+    super(orig, copyState);
+    this.parentMixin = new MixinParentNode<>(orig.parentMixin, this, copyState);
     this.contentKind = orig.contentKind;
   }
 
@@ -168,8 +169,8 @@ public final class LetContentNode extends LetNode implements RenderUnitNode {
     return parentMixin.toTreeString(indent);
   }
 
-  @Override public LetContentNode clone() {
-    return new LetContentNode(this);
+  @Override public LetContentNode copy(CopyState copyState) {
+    return new LetContentNode(this, copyState);
   }
 
   /**
@@ -177,9 +178,10 @@ public final class LetContentNode extends LetNode implements RenderUnitNode {
    */
   public static final class Builder {
 
-    public static final LetContentNode ERROR
-        = new LetContentNode.Builder(-1, "$error", SourceLocation.UNKNOWN)
-        .buildAndThrowIfInvalid(); // guaranteed to be valid
+    private static LetContentNode error() {
+      return new LetContentNode.Builder(-1, "$error", SourceLocation.UNKNOWN)
+          .build(ExplodingErrorReporter.get()); // guaranteed to be valid
+    }
 
     private final int id;
     private final String commandText;
@@ -198,7 +200,7 @@ public final class LetContentNode extends LetNode implements RenderUnitNode {
 
     /**
      * Returns a new {@link LetContentNode} built from the builder's state. If the builder's state
-     * is invalid, errors are reported to the {@code errorManager} and {Builder#ERROR} is returned.
+     * is invalid, errors are reported to the {@code errorManager} and {Builder#error} is returned.
      */
     public LetContentNode build(ErrorReporter errorReporter) {
       Checkpoint checkpoint = errorReporter.checkpoint();
@@ -210,19 +212,11 @@ public final class LetContentNode extends LetNode implements RenderUnitNode {
       }
 
       if (errorReporter.errorsSince(checkpoint)) {
-        return ERROR;
+        return error();
       }
 
-      LetContentNode node = new LetContentNode(
+      return new LetContentNode(
           id, sourceLocation, parseResult.localVarName, commandText, parseResult.contentKind);
-      return node;
-    }
-
-    private LetContentNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
-      LetContentNode node = build(errorReporter);
-      errorReporter.throwIfErrorsPresent();
-      return node;
     }
   }
 }

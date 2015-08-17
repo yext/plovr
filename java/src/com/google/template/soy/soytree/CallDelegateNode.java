@@ -21,17 +21,16 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.template.soy.base.SourceLocation;
-import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.BaseUtils;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.exprtree.StringNode;
-import com.google.template.soy.internal.base.Pair;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
 import com.google.template.soy.soytree.CommandTextAttributesParser.Attribute;
 import com.google.template.soy.soytree.defn.TemplateParam;
 
@@ -75,23 +74,22 @@ public final class CallDelegateNode extends CallNode {
 
     public CommandTextInfo(
         String commandText, String delCalleeName, @Nullable ExprRootNode delCalleeVariantExpr,
-        Boolean allowsEmptyDefault, boolean isPassingData, @Nullable ExprRootNode dataExpr,
+        Boolean allowsEmptyDefault, DataAttribute dataAttr,
         @Nullable String userSuppliedPlaceholderName) {
-      super(commandText, isPassingData, dataExpr, userSuppliedPlaceholderName, null);
+      super(commandText, dataAttr, userSuppliedPlaceholderName, null);
       this.delCalleeName = delCalleeName;
       this.delCalleeVariantExpr = delCalleeVariantExpr;
       this.allowsEmptyDefault = allowsEmptyDefault;
     }
   }
 
-  /** Pattern for a callee name not listed as an attribute name="...". */
+  /** Pattern for a callee name. */
   private static final Pattern NONATTRIBUTE_CALLEE_NAME =
-      Pattern.compile("^ (?! name=\") [.\\w]+ (?= \\s | $)", Pattern.COMMENTS);
+      Pattern.compile("^\\s* ([.\\w]+) (?= \\s | $)", Pattern.COMMENTS);
 
   /** Parser for the command text. */
   private static final CommandTextAttributesParser ATTRIBUTES_PARSER =
       new CommandTextAttributesParser("delcall",
-          new Attribute("name", Attribute.ALLOW_ALL_VALUES, null),
           new Attribute("variant", Attribute.ALLOW_ALL_VALUES, null),
           new Attribute("data", Attribute.ALLOW_ALL_VALUES, null),
           new Attribute("allowemptydefault", Attribute.BOOLEAN_VALUES, null));
@@ -122,22 +120,22 @@ public final class CallDelegateNode extends CallNode {
 
   public static final class Builder {
 
-    public static final CallDelegateNode ERROR = new Builder(-1, SourceLocation.UNKNOWN)
-        .commandText("error.error")
-        .buildAndThrowIfInvalid(); // guaranteed to be valid
+    private static CallDelegateNode error() {
+      return new Builder(-1, SourceLocation.UNKNOWN)
+          .commandText("error.error")
+          .build(ExplodingErrorReporter.get()); // guaranteed to be valid
+    }
 
     private final int id;
     private final SourceLocation sourceLocation;
 
     private boolean allowEmptyDefault;
-    private boolean isPassingData;
-    private boolean isPassingAllData;
+    private DataAttribute dataAttribute = DataAttribute.none();
     private ImmutableList<String> escapingDirectiveNames = ImmutableList.of();
 
     @Nullable private String commandText;
     @Nullable private String delCalleeName;
     @Nullable private ExprRootNode delCalleeVariantExpr;
-    @Nullable private ExprRootNode dataExpr;
     @Nullable private String userSuppliedPlaceholderName;
 
     public Builder(int id, SourceLocation sourceLocation) {
@@ -152,11 +150,6 @@ public final class CallDelegateNode extends CallNode {
 
     public Builder commandText(String commandText) {
       this.commandText = commandText;
-      return this;
-    }
-
-    public Builder dataExpr(ExprRootNode dataExpr) {
-      this.dataExpr = dataExpr;
       return this;
     }
 
@@ -175,13 +168,8 @@ public final class CallDelegateNode extends CallNode {
       return this;
     }
 
-    public Builder isPassingData(boolean isPassingData) {
-      this.isPassingData = isPassingData;
-      return this;
-    }
-
-    public Builder isPassingAllData(boolean isPassingAllData) {
-      this.isPassingAllData = isPassingAllData;
+    public Builder dataAttribute(DataAttribute dataAttribute) {
+      this.dataAttribute = dataAttribute;
       return this;
     }
 
@@ -196,24 +184,11 @@ public final class CallDelegateNode extends CallNode {
           ? parseCommandText(errorReporter)
           : buildCommandText();
       if (errorReporter.errorsSince(checkpoint)) {
-        return ERROR;
+        return error();
       }
       CallDelegateNode callDelegateNode
           = new CallDelegateNode(id, sourceLocation, commandTextInfo, escapingDirectiveNames);
       return callDelegateNode;
-    }
-
-    /**
-     * @throws SoySyntaxException if the data given to the Builder cannot be used to construct
-     *     a {@link CallBasicNode}.
-     * TODO(user): remove. The parser already has an ErrorManager. This method exists
-     *     solely for higher layers (like visitors) that do not already have ErrorManagers.
-     */
-    public CallDelegateNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorManager = new TransitionalThrowingErrorReporter();
-      CallDelegateNode node = build(errorManager);
-      errorManager.throwIfErrorsPresent();
-      return node;
     }
 
     private CommandTextInfo parseCommandText(ErrorReporter errorReporter) {
@@ -226,21 +201,21 @@ public final class CallDelegateNode extends CallNode {
 
       // Handle callee name not listed as an attribute.
       Matcher ncnMatcher = NONATTRIBUTE_CALLEE_NAME.matcher(commandTextWithoutPhnameAttr);
+      String delCalleeName;
       if (ncnMatcher.find()) {
-        commandTextWithoutPhnameAttr
-            = ncnMatcher.replaceFirst("name=\"" + ncnMatcher.group() + "\"");
+        delCalleeName = ncnMatcher.group(1);
+        if (!BaseUtils.isDottedIdentifier(delCalleeName)) {
+          errorReporter.report(sourceLocation, INVALID_DELEGATE_NAME, delCalleeName);
+        }
+        commandTextWithoutPhnameAttr =
+            commandTextWithoutPhnameAttr.substring(ncnMatcher.end()).trim();
+      } else {
+        delCalleeName = null;
+        errorReporter.report(sourceLocation, MISSING_CALLEE_NAME, commandText);
       }
 
       Map<String, String> attributes =
           ATTRIBUTES_PARSER.parse(commandTextWithoutPhnameAttr, errorReporter, sourceLocation);
-
-      String delCalleeName = attributes.get("name");
-      if (delCalleeName == null) {
-        errorReporter.report(sourceLocation, MISSING_CALLEE_NAME, commandText);
-      }
-      if (!BaseUtils.isDottedIdentifier(delCalleeName)) {
-        errorReporter.report(sourceLocation, INVALID_DELEGATE_NAME, delCalleeName);
-      }
 
       String variantExprText = attributes.get("variant");
       ExprRootNode delCalleeVariantExpr;
@@ -259,7 +234,7 @@ public final class CallDelegateNode extends CallNode {
         delCalleeVariantExpr = new ExprRootNode(expr);
       }
 
-      Pair<Boolean, ExprRootNode> dataAttrInfo =
+      DataAttribute dataAttrInfo =
           parseDataAttributeHelper(attributes.get("data"), sourceLocation, errorReporter);
 
       String allowemptydefaultAttr = attributes.get("allowemptydefault");
@@ -267,36 +242,31 @@ public final class CallDelegateNode extends CallNode {
           (allowemptydefaultAttr == null) ? null : allowemptydefaultAttr.equals("true");
 
       return new CommandTextInfo(
-          commandText, delCalleeName, delCalleeVariantExpr, allowsEmptyDefault, dataAttrInfo.first,
-          dataAttrInfo.second, userSuppliedPlaceholderName);
+          commandText, delCalleeName, delCalleeVariantExpr, allowsEmptyDefault,
+          dataAttrInfo, userSuppliedPlaceholderName);
     }
 
     private CommandTextInfo buildCommandText() {
 
       Preconditions.checkArgument(BaseUtils.isDottedIdentifier(delCalleeName));
-      if (isPassingAllData) {
-        Preconditions.checkArgument(isPassingData);
-      }
-      if (dataExpr != null) {
-        Preconditions.checkArgument(isPassingData && ! isPassingAllData);
-      }
-
       String commandText = "";
         commandText += delCalleeName;
-      if (isPassingAllData) {
+      if (dataAttribute.isPassingAllData()) {
         commandText += " data=\"all\"";
-      } else if (isPassingData) {
-        assert dataExpr != null;  // suppress warnings
-        commandText += " data=\"" + dataExpr.toSourceString() + '"';
+      } else if (dataAttribute.isPassingData()) {
+        assert dataAttribute.dataExpr() != null;  // suppress warnings
+        commandText += " data=\"" + dataAttribute.dataExpr().toSourceString() + '"';
       }
       if (userSuppliedPlaceholderName != null) {
         commandText += " phname=\"" + userSuppliedPlaceholderName + '"';
       }
 
       return new CommandTextInfo(
-          commandText, delCalleeName, delCalleeVariantExpr, allowEmptyDefault, isPassingData,
-          dataExpr, userSuppliedPlaceholderName);
+          commandText, delCalleeName, delCalleeVariantExpr, allowEmptyDefault, dataAttribute,
+          userSuppliedPlaceholderName);
     }
+
+
   }
 
   private CallDelegateNode(
@@ -316,11 +286,11 @@ public final class CallDelegateNode extends CallNode {
    * @param orig The node to copy.
    */
   @SuppressWarnings("ConstantConditions")  // for IntelliJ
-  private CallDelegateNode(CallDelegateNode orig) {
-    super(orig);
+  private CallDelegateNode(CallDelegateNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.delCalleeName = orig.delCalleeName;
     this.delCalleeVariantExpr =
-        (orig.delCalleeVariantExpr != null) ? orig.delCalleeVariantExpr.clone() : null;
+        (orig.delCalleeVariantExpr != null) ? orig.delCalleeVariantExpr.copy(copyState) : null;
     this.allowsEmptyDefault = orig.allowsEmptyDefault;
     this.paramsToRuntimeCheckByDelegate = orig.paramsToRuntimeCheckByDelegate;
   }
@@ -387,8 +357,8 @@ public final class CallDelegateNode extends CallNode {
   }
 
 
-  @Override public CallDelegateNode clone() {
-    return new CallDelegateNode(this);
+  @Override public CallDelegateNode copy(CopyState copyState) {
+    return new CallDelegateNode(this, copyState);
   }
 
 }

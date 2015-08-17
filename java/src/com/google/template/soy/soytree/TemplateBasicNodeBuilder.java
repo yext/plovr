@@ -26,17 +26,16 @@ import com.google.template.soy.basetree.SyntaxVersion;
 import com.google.template.soy.basetree.SyntaxVersionBound;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
 import com.google.template.soy.data.internalutils.NodeContentKinds;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.soytree.CommandTextAttributesParser.Attribute;
 import com.google.template.soy.soytree.TemplateNode.SoyFileHeaderInfo;
 import com.google.template.soy.types.SoyTypeRegistry;
 
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
-
 
 /**
  * Builder for TemplateBasicNode.
@@ -46,14 +45,13 @@ import javax.annotation.Nullable;
  */
 public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
 
-  /** Pattern for a template name not listed as an attribute name="...". */
+  /** Pattern for a template name. */
   private static final Pattern NONATTRIBUTE_TEMPLATE_NAME =
-      Pattern.compile("^ (?! name=\") [.\\w]+ (?= \\s | $)", Pattern.COMMENTS);
+      Pattern.compile("^ [.\\w]+ (?= \\s | $)", Pattern.COMMENTS);
 
   /** Parser for the command text. */
   private static final CommandTextAttributesParser ATTRIBUTES_PARSER =
       new CommandTextAttributesParser("template",
-          new Attribute("name", Attribute.ALLOW_ALL_VALUES, null),  // V2.1-
           new Attribute("private", Attribute.BOOLEAN_VALUES, "false"),
           new Attribute("autoescape", AutoescapeMode.getAttributeValues(), null),
           new Attribute("kind", NodeContentKinds.getAttributeValues(), null),
@@ -66,8 +64,10 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
    * @param sourceLocation The template's source location.
    */
   public TemplateBasicNodeBuilder(
-      SoyFileHeaderInfo soyFileHeaderInfo, SourceLocation sourceLocation) {
-    super(soyFileHeaderInfo, sourceLocation, null);
+      SoyFileHeaderInfo soyFileHeaderInfo,
+      SourceLocation sourceLocation,
+      ErrorReporter errorReporter) {
+    super(soyFileHeaderInfo, sourceLocation, errorReporter, null /* typeRegistry */);
   }
 
   /**
@@ -78,8 +78,9 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
   public TemplateBasicNodeBuilder(
       SoyFileHeaderInfo soyFileHeaderInfo,
       SourceLocation sourceLocation,
+      ErrorReporter errorReporter,
       SoyTypeRegistry typeRegistry) {
-    super(soyFileHeaderInfo, sourceLocation, typeRegistry);
+    super(soyFileHeaderInfo, sourceLocation, errorReporter, typeRegistry);
   }
 
   @Override public TemplateBasicNodeBuilder setId(int id) {
@@ -93,38 +94,19 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
 
     String commandTextForParsing = cmdText;
 
-    // Handle template name not listed as an attribute name="...".
-    String nameAttr = null;
+    String nameAttr;
     Matcher ntnMatcher = NONATTRIBUTE_TEMPLATE_NAME.matcher(commandTextForParsing);
     if (ntnMatcher.find()) {
       nameAttr = ntnMatcher.group();
       commandTextForParsing = commandTextForParsing.substring(ntnMatcher.end()).trim();
-    }
-
-    Map<String, String> attributes = ATTRIBUTES_PARSER.parse(commandTextForParsing);
-
-    if (nameAttr == null) {
-      nameAttr = attributes.get("name");
-      if (nameAttr == null) {
-        throw SoySyntaxException.createWithoutMetaInfo(
-            "Invalid 'template' command missing template name: {template " + cmdText + "}.");
-      }
-      // Explicit attribute 'name' is only allowed in syntax versions 2.1 and below.
-      SyntaxVersionBound newSyntaxVersionBound = new SyntaxVersionBound(
-          SyntaxVersion.V2_2,
-          String.format(
-              "Template name should be written directly instead of within attribute 'name' (i.e." +
-                  " use {template %s} instead of {template name=\"%s\"}.",
-              nameAttr, nameAttr));
-      this.syntaxVersionBound =
-          SyntaxVersionBound.selectLower(this.syntaxVersionBound, newSyntaxVersionBound);
     } else {
-      if (attributes.get("name") != null) {
-        throw SoySyntaxException.createWithoutMetaInfo(
-            "Invalid 'template' command with template name declared multiple times (" +
-            nameAttr + ", " + attributes.get("name") + ").");
-      }
+      throw SoySyntaxException.createWithoutMetaInfo(
+          "Invalid 'template' command missing template name: {template " + cmdText + "}.");
     }
+
+    Map<String, String> attributes = ATTRIBUTES_PARSER.parse(
+        commandTextForParsing, errorReporter, sourceLocation);
+
     if (BaseUtils.isIdentifierWithLeadingDot(nameAttr)) {
       if (soyFileHeaderInfo.namespace == null) {
         throw SoySyntaxException.createWithoutMetaInfo(
@@ -185,8 +167,6 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
    *
    * @param templateName This template's name.
    * @param partialTemplateName This template's partial name. Only applicable for V2; null for V1.
-   * @param useAttrStyleForName Whether to use an attribute to specify the name. This is purely
-   *     cosmetic for the generated cmdText string.
    * @param visibility Visibility of this template.
    * @param autoescapeMode The mode of autoescaping for this template.
    * @param contentKind Strict mode context. Nonnull iff autoescapeMode is strict.
@@ -194,7 +174,7 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
    * @return This builder.
    */
   public TemplateBasicNodeBuilder setCmdTextInfo(
-      String templateName, @Nullable String partialTemplateName, boolean useAttrStyleForName,
+      String templateName, @Nullable String partialTemplateName,
       Visibility visibility, AutoescapeMode autoescapeMode,
       ContentKind contentKind, ImmutableList<String> requiredCssNamespaces) {
 
@@ -211,13 +191,7 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
     setRequiredCssNamespaces(requiredCssNamespaces);
 
     StringBuilder cmdTextBuilder = new StringBuilder();
-    String templateNameInCommandText =
-        (partialTemplateName != null) ? partialTemplateName : templateName;
-    if (useAttrStyleForName) {
-      cmdTextBuilder.append("name=\"").append(templateNameInCommandText).append('"');
-    } else {
-      cmdTextBuilder.append(templateNameInCommandText);
-    }
+    cmdTextBuilder.append((partialTemplateName != null) ? partialTemplateName : templateName);
     cmdTextBuilder.append(" autoescape=\"").append(autoescapeMode.getAttributeValue()).append('"');
     if (contentKind != null) {
       cmdTextBuilder.append(" kind=\"" + NodeContentKinds.toAttributeValue(contentKind) + '"');
@@ -238,7 +212,7 @@ public class TemplateBasicNodeBuilder extends TemplateNodeBuilder {
     return (TemplateBasicNodeBuilder) super.setSoyDoc(soyDoc);
   }
 
-  @Override public TemplateBasicNodeBuilder setHeaderDecls(List<DeclInfo> declInfos) {
+  @Override public TemplateBasicNodeBuilder setHeaderDecls(DeclInfo... declInfos) {
     return (TemplateBasicNodeBuilder) super.setHeaderDecls(declInfos);
   }
 

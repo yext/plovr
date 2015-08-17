@@ -125,7 +125,7 @@ public final class GenPyCodeVisitorTest extends TestCase {
         + "  output = []\n"
         + "  if opt_data.get('foo'):\n"
         + "    for i### in xrange(5):\n"
-        + "      output.append(str(opt_data.get('boo')[i###]))\n"
+        + "      output.append(str(runtime.key_safe_data_access(opt_data.get('boo'), i###)))\n"
         + "  else:\n"
         + "    output.append('Blah')\n"
         + "  return sanitize.SanitizedHtml(''.join(output))\n";
@@ -173,7 +173,7 @@ public final class GenPyCodeVisitorTest extends TestCase {
         + "{/for}\n";
     String expectedPyCode =
         "for i### in xrange(5):\n"
-        + "  output.append(str(opt_data.get('boo')[i###]))\n";
+        + "  output.append(str(runtime.key_safe_data_access(opt_data.get('boo'), i###)))\n";
     assertThatSoyCode(soyCode).compilesTo(expectedPyCode);
 
     soyCode =
@@ -182,7 +182,7 @@ public final class GenPyCodeVisitorTest extends TestCase {
         + "{/for}\n";
     expectedPyCode =
         "for i### in xrange(5, 10):\n"
-        + "  output.append(str(opt_data.get('boo')[i###]))\n";
+        + "  output.append(str(runtime.key_safe_data_access(opt_data.get('boo'), i###)))\n";
     assertThatSoyCode(soyCode).compilesTo(expectedPyCode);
 
     soyCode =
@@ -191,7 +191,7 @@ public final class GenPyCodeVisitorTest extends TestCase {
         + "{/for}\n";
     expectedPyCode =
         "for i### in xrange(opt_data.get('foo'), opt_data.get('boo'), opt_data.get('goo')):\n"
-        + "  output.append(str(opt_data.get('boo')[i###]))\n";
+        + "  output.append(str(runtime.key_safe_data_access(opt_data.get('boo'), i###)))\n";
     assertThatSoyCode(soyCode).compilesTo(expectedPyCode);
   }
 
@@ -257,7 +257,27 @@ public final class GenPyCodeVisitorTest extends TestCase {
         + "{/let}\n";
 
     String expectedPyCode =
-        "foo__soy### = sanitize.SanitizedHtml(''.join(['Hello ',str(opt_data.get('boo'))]))\n";
+        "foo__soy### = ['Hello ',str(opt_data.get('boo'))]\n"
+        + "foo__soy### = sanitize.SanitizedHtml(''.join(foo__soy###))\n";
+
+    assertThatSoyCode(soyCode).compilesTo(expectedPyCode);
+  }
+
+  public void testLetContent_notComputableAsExpr() {
+    String soyCode =
+        "{let $foo kind=\"html\"}\n"
+        + "  {for $num in range(5)}\n"
+        + "    {$num}\n"
+        + "  {/for}\n"
+        + "  Hello {$boo}\n"
+        + "{/let}\n";
+
+    String expectedPyCode =
+        "foo__soy### = []\n"
+        + "for num### in xrange(5):\n"
+        + "  foo__soy###.append(str(num###))\n"
+        + "foo__soy###.extend(['Hello ',str(opt_data.get('boo'))])\n"
+        + "foo__soy### = sanitize.SanitizedHtml(''.join(foo__soy###))\n";
 
     assertThatSoyCode(soyCode).compilesTo(expectedPyCode);
   }

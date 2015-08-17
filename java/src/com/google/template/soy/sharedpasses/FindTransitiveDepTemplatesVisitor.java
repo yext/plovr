@@ -23,8 +23,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.sharedpasses.FindTransitiveDepTemplatesVisitor.TransitiveDepTemplatesInfo;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallBasicNode;
 import com.google.template.soy.soytree.CallDelegateNode;
@@ -71,21 +71,10 @@ public final class FindTransitiveDepTemplatesVisitor
     /** Set of templates transitively called by the root template(s). Sorted by template name. */
     public final ImmutableSortedSet<TemplateNode> depTemplateSet;
 
-    /** Whether the root template set has external basic calls. */
-    public final boolean hasExternalCalls;
-
-    /** Whether the root template set has delegate calls (which always could be external calls). */
-    public final boolean hasDelCalls;
-
-
     /**
      * @param depTemplateSet Set of templates transitively called by the root template(s).
-     * @param hasExternalCalls Whether the root template set has external basic calls.
-     * @param hasDelCalls Whether the root template set has delegate calls (which always could be
-     *     external calls).
      */
-    public TransitiveDepTemplatesInfo(
-        Set<TemplateNode> depTemplateSet, boolean hasExternalCalls, boolean hasDelCalls) {
+    public TransitiveDepTemplatesInfo(Set<TemplateNode> depTemplateSet) {
       this.depTemplateSet =
           ImmutableSortedSet.copyOf(
               new Comparator<TemplateNode>() {
@@ -94,8 +83,6 @@ public final class FindTransitiveDepTemplatesVisitor
                 }
               },
               depTemplateSet);
-      this.hasExternalCalls = hasExternalCalls;
-      this.hasDelCalls = hasDelCalls;
     }
 
 
@@ -108,17 +95,12 @@ public final class FindTransitiveDepTemplatesVisitor
         Iterable<? extends TransitiveDepTemplatesInfo> infosToMerge) {
 
       ImmutableSet.Builder<TemplateNode> depTemplateSetBuilder = ImmutableSet.builder();
-      boolean hasExternalCalls = false;
-      boolean hasDelCalls = false;
 
       for (TransitiveDepTemplatesInfo infoToMerge : infosToMerge) {
         depTemplateSetBuilder.addAll(infoToMerge.depTemplateSet);
-        hasExternalCalls |= infoToMerge.hasExternalCalls;
-        hasDelCalls |= infoToMerge.hasDelCalls;
       }
 
-      return new TransitiveDepTemplatesInfo(
-          depTemplateSetBuilder.build(), hasExternalCalls, hasDelCalls);
+      return new TransitiveDepTemplatesInfo(depTemplateSetBuilder.build());
     }
 
 
@@ -160,13 +142,6 @@ public final class FindTransitiveDepTemplatesVisitor
      *  <p> Note: May be incomplete if visitInfoOfEarliestEquivalent is nonnull. */
     public Set<TemplateNode> depTemplateSet;
 
-    /** Whether the root template has external basic calls.
-     *  <p> Note: May be incorrect if visitInfoOfEarliestEquivalent is nonnull. */
-    public boolean hasExternalCalls;
-
-    /** Whether the root template has delegate calls (which always may be external calls).
-     *  <p> Note: May be incorrect if visitInfoOfEarliestEquivalent is nonnull. */
-    public boolean hasDelCalls;
 
     /** Cached value of the finished info if previously computed, else null. */
     private TransitiveDepTemplatesInfo finishedInfo;
@@ -177,8 +152,6 @@ public final class FindTransitiveDepTemplatesVisitor
       this.visitOrdinal = visitOrdinal;
       this.visitInfoOfEarliestEquivalent = null;
       this.depTemplateSet = Sets.newHashSet();
-      this.hasExternalCalls = false;
-      this.hasDelCalls = false;
       this.finishedInfo = null;
     }
 
@@ -204,8 +177,6 @@ public final class FindTransitiveDepTemplatesVisitor
     public void incorporateCalleeFinishedInfo(
         TransitiveDepTemplatesInfo calleeFinishedInfo) {
       depTemplateSet.addAll(calleeFinishedInfo.depTemplateSet);
-      hasExternalCalls |= calleeFinishedInfo.hasExternalCalls;
-      hasDelCalls |= calleeFinishedInfo.hasDelCalls;
     }
 
 
@@ -248,8 +219,6 @@ public final class FindTransitiveDepTemplatesVisitor
      */
     private void incorporateCalleeVisitInfoHelper(TemplateVisitInfo calleeVisitInfo) {
       depTemplateSet.addAll(calleeVisitInfo.depTemplateSet);
-      hasExternalCalls |= calleeVisitInfo.hasExternalCalls;
-      hasDelCalls |= calleeVisitInfo.hasDelCalls;
     }
 
 
@@ -264,8 +233,7 @@ public final class FindTransitiveDepTemplatesVisitor
         if (visitInfoOfEarliestEquivalent != null) {
           finishedInfo = visitInfoOfEarliestEquivalent.toFinishedInfo();
         } else {
-          finishedInfo =
-              new TransitiveDepTemplatesInfo(depTemplateSet, hasExternalCalls, hasDelCalls);
+          finishedInfo = new TransitiveDepTemplatesInfo(depTemplateSet);
         }
       }
       return finishedInfo;
@@ -326,7 +294,7 @@ public final class FindTransitiveDepTemplatesVisitor
     // Build templateRegistry and initialize templateToFinishedInfoMap if necessary.
     if (templateRegistry == null) {
       SoyFileSetNode soyTree = rootTemplateCast.getParent().getParent();
-      templateRegistry = new TemplateRegistry(soyTree);
+      templateRegistry = new TemplateRegistry(soyTree, errorReporter);
     }
 
     // If finished in a previous pass (previous call to exec), just return the finished info.
@@ -446,7 +414,6 @@ public final class FindTransitiveDepTemplatesVisitor
 
     // If the callee is null (i.e. not within the Soy file set), then this is an external call.
     if (callee == null) {
-      currTemplateVisitInfo.hasExternalCalls = true;
       return;
     }
 
@@ -460,16 +427,12 @@ public final class FindTransitiveDepTemplatesVisitor
     // Don't forget to visit content within CallParamContentNodes.
     visitChildren(node);
 
-    currTemplateVisitInfo.hasDelCalls = true;
-
     // Visit all the possible callee templates.
-    Set<DelegateTemplateDivision> delTemplateDivisions =
+    ImmutableSet<DelegateTemplateDivision> delTemplateDivisions =
         templateRegistry.getDelTemplateDivisionsForAllVariants(node.getDelCalleeName());
-    if (delTemplateDivisions != null) {
-      for (DelegateTemplateDivision division : delTemplateDivisions) {
-        for (TemplateDelegateNode delCallee : division.delPackageNameToDelTemplateMap.values()) {
-          processCalleeHelper(delCallee);
-        }
+    for (DelegateTemplateDivision division : delTemplateDivisions) {
+      for (TemplateDelegateNode delCallee : division.delPackageNameToDelTemplateMap.values()) {
+        processCalleeHelper(delCallee);
       }
     }
   }

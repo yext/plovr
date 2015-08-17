@@ -19,10 +19,11 @@ package com.google.template.soy.parsepasses;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.IdGenerator;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprtree.ExprRootNode;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.MsgNode;
 import com.google.template.soy.soytree.MsgPluralNode;
@@ -33,7 +34,6 @@ import com.google.template.soy.soytree.MsgSubstUnitBaseVarNameUtils;
 import com.google.template.soy.soytree.SoyNode;
 import com.google.template.soy.soytree.SoyNode.ParentSoyNode;
 import com.google.template.soy.soytree.SoyNode.StandaloneNode;
-import com.google.template.soy.soytree.SoySyntaxExceptionUtils;
 import com.google.template.soy.soytree.SoytreeUtils;
 
 import java.util.List;
@@ -47,6 +47,11 @@ import javax.annotation.Nullable;
  */
 public final class RewriteGenderMsgsVisitor extends AbstractSoyNodeVisitor<Void> {
 
+  private static final SoyError GENDER_AND_SELECT_NOT_ALLOWED = SoyError.of(
+      "Cannot mix ''genders'' attribute with ''select'' command in the same message.");
+  private static final SoyError MORE_THAN_TWO_GENDER_EXPRS = SoyError.of(
+      "In a msg with ''plural'', the ''genders'' attribute can contain at most 2 expressions "
+      + "(otherwise, combinatorial explosion would cause a gigantic generated message).");
 
   /** Fallback base select var name. */
   public static final String FALLBACK_BASE_SELECT_VAR_NAME = "GENDER";
@@ -80,18 +85,13 @@ public final class RewriteGenderMsgsVisitor extends AbstractSoyNodeVisitor<Void>
 
     // Check that 'genders' attribute and 'select' command are not used together.
     if (msg.getChild(0) instanceof MsgSelectNode) {
-      throw SoySyntaxExceptionUtils.createWithNode(
-          "Cannot mix 'genders' attribute with 'select' command in the same message. Please use" +
-              " one or the other only.",
-          msg);
+      errorReporter.report(
+          msg.getChild(0).getSourceLocation(), GENDER_AND_SELECT_NOT_ALLOWED);
     }
 
     // If plural msg, check that there are max 2 genders.
     if (msg.getChild(0) instanceof MsgPluralNode && genderExprs.size() > 2) {
-      throw SoySyntaxExceptionUtils.createWithNode(
-          "In a msg with 'plural', the 'genders' attribute can contain at most 2 expressions" +
-              " (otherwise, combinatorial explosion would cause a gigantic generated message).",
-          msg);
+      errorReporter.report(msg.getSourceLocation(), MORE_THAN_TWO_GENDER_EXPRS);
     }
 
     // ------ Do the rewrite. ------
@@ -100,13 +100,11 @@ public final class RewriteGenderMsgsVisitor extends AbstractSoyNodeVisitor<Void>
     // being the outermost 'select' level.
     genderExprs = Lists.reverse(genderExprs);
 
-    List<String> baseSelectVarNames;
-    try {
-      baseSelectVarNames =
-          MsgSubstUnitBaseVarNameUtils.genNoncollidingBaseNamesForExprs(
-              ExprRootNode.unwrap(genderExprs), FALLBACK_BASE_SELECT_VAR_NAME);
-    } catch (SoySyntaxException sse) {
-      throw SoySyntaxExceptionUtils.associateNode(sse, msg);
+    Checkpoint checkpoint = errorReporter.checkpoint();
+    List<String> baseSelectVarNames = MsgSubstUnitBaseVarNameUtils.genNoncollidingBaseNamesForExprs(
+        ExprRootNode.unwrap(genderExprs), FALLBACK_BASE_SELECT_VAR_NAME, errorReporter);
+    if (errorReporter.errorsSince(checkpoint)) {
+      return; // To prevent an IndexOutOfBoundsException below.
     }
 
     for (int i = 0; i < genderExprs.size(); i++) {
@@ -116,10 +114,10 @@ public final class RewriteGenderMsgsVisitor extends AbstractSoyNodeVisitor<Void>
       // Check whether the generated base name would be the same (both for the old naive algorithm
       // and the new algorithm). If so, then there's no need to specify the baseSelectVarName.
       if (MsgSubstUnitBaseVarNameUtils.genNaiveBaseNameForExpr(
-          genderExpr.getChild(0), FALLBACK_BASE_SELECT_VAR_NAME)
+          genderExpr.getRoot(), FALLBACK_BASE_SELECT_VAR_NAME)
               .equals(baseSelectVarName)
           && MsgSubstUnitBaseVarNameUtils.genShortestBaseNameForExpr(
-              genderExpr.getChild(0), FALLBACK_BASE_SELECT_VAR_NAME)
+              genderExpr.getRoot(), FALLBACK_BASE_SELECT_VAR_NAME)
               .equals(baseSelectVarName)) {
         baseSelectVarName = null;
       }
@@ -145,11 +143,11 @@ public final class RewriteGenderMsgsVisitor extends AbstractSoyNodeVisitor<Void>
 
     MsgSelectCaseNode femaleCase
         = new MsgSelectCaseNode.Builder(nodeIdGen.genId(), "'female'", msg.getSourceLocation())
-            .buildAndThrowIfInvalid();
+            .build(errorReporter);
     femaleCase.addChildren(SoytreeUtils.cloneListWithNewIds(origChildren, nodeIdGen));
     MsgSelectCaseNode maleCase
         = new MsgSelectCaseNode.Builder(nodeIdGen.genId(), "'male'", msg.getSourceLocation())
-            .buildAndThrowIfInvalid();
+            .build(errorReporter);
     maleCase.addChildren(SoytreeUtils.cloneListWithNewIds(origChildren, nodeIdGen));
     MsgSelectDefaultNode defaultCase
         = new MsgSelectDefaultNode(nodeIdGen.genId(), msg.getSourceLocation());

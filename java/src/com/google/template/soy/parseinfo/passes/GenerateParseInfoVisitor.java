@@ -32,6 +32,7 @@ import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.BaseUtils;
 import com.google.template.soy.base.internal.IndentedLinesBuilder;
 import com.google.template.soy.base.internal.SoyFileKind;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.AbstractExprNodeVisitor;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprNode.ParentExprNode;
@@ -43,7 +44,6 @@ import com.google.template.soy.sharedpasses.FindIjParamsVisitor;
 import com.google.template.soy.sharedpasses.FindIjParamsVisitor.IjParamsInfo;
 import com.google.template.soy.sharedpasses.FindIndirectParamsVisitor;
 import com.google.template.soy.sharedpasses.FindIndirectParamsVisitor.IndirectParamsInfo;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CssNode;
 import com.google.template.soy.soytree.ExprUnion;
@@ -283,7 +283,7 @@ public final class GenerateParseInfoVisitor
     }
 
     // Build template registry.
-    templateRegistry = new TemplateRegistry(node);
+    templateRegistry = new TemplateRegistry(node, errorReporter);
 
     // Run the pass.
     for (SoyFileNode soyFile : node.getChildren()) {
@@ -473,16 +473,8 @@ public final class GenerateParseInfoVisitor
     ilb.appendLine("\"", node.getFileName(), "\",");
     ilb.appendLine("\"", node.getNamespace(), "\",");
 
-    // Params from all templates.
-    List<String> itemSnippets = Lists.newArrayList();
-    for (String upperUnderscoreKey : allParamKeysMap.keySet()) {
-      itemSnippets.add("Param." + upperUnderscoreKey);
-    }
-    appendImmutableSortedSet(ilb, "<String>", itemSnippets);
-    ilb.appendLineEnd(",");
-
     // Templates.
-    itemSnippets = Lists.newArrayList();
+    List<String> itemSnippets = Lists.newArrayList();
     itemSnippets.addAll(publicBasicTemplateMap.keySet());
     appendImmutableList(ilb, "<SoyTemplateInfo>", itemSnippets);
     ilb.appendLineEnd(",");
@@ -547,7 +539,7 @@ public final class GenerateParseInfoVisitor
       TemplateParam existingParam = transitiveParamMap.get(param.name());
       if (existingParam == null) {
         // Note: We don't list the description for indirect params.
-        transitiveParamMap.put(param.name(), param.cloneEssential());
+        transitiveParamMap.put(param.name(), param.copyEssential());
       }
     }
 
@@ -653,11 +645,6 @@ public final class GenerateParseInfoVisitor
     }
 
     appendIjParamSet(ilb, ijParamsInfo);
-    ilb.appendLineEnd(",");
-    // TODO: We should really disallow external basic calls when GenerateParseInfoVisitor is used.
-    ilb.appendLine(ijParamsInfo.mayHaveIjParamsInExternalCalls, ",");
-    ilb.appendLineStart(ijParamsInfo.mayHaveIjParamsInExternalDelCalls);
-
     ilb.appendLineEnd(");");
     ilb.decreaseIndent(2);
 
@@ -694,9 +681,10 @@ public final class GenerateParseInfoVisitor
    * Private helper for visitSoyFileNode() and visitTemplateNode() to convert an identifier to upper
    * underscore format.
    *
-   * We simply dispatch to Utils.convertToUpperUnderscore() to do the actual conversion. The reason
-   * for the existence of this method is that we cache all results of previous invocations in this
-   * pass because this method is expected to be called for the same identifier multiple times.
+   * <p>We simply dispatch to Utils.convertToUpperUnderscore() to do the actual conversion.
+   * The reason for the existence of this method is that we cache all results of previous
+   * invocations in this pass because this method is expected to be called for the same identifier
+   * multiple times.
    *
    * @param ident The identifier to convert.
    * @return The identifier in upper underscore format.
@@ -932,8 +920,8 @@ public final class GenerateParseInfoVisitor
   /**
    * Private helper class for visitSoyFileNode() to collect all the CSS names appearing in a file.
    *
-   * The return value of exec() is a map from each CSS name appearing in the given node's subtree to
-   * its CssTagsPrefixPresence state.
+   * <p>The return value of exec() is a map from each CSS name appearing in the given node's subtree
+   * to its CssTagsPrefixPresence state.
    */
   private static class CollectCssNamesVisitor
       extends AbstractSoyNodeVisitor<SortedMap<String, CssTagsPrefixPresence>> {
@@ -1028,13 +1016,9 @@ public final class GenerateParseInfoVisitor
       this.protoTypes = protoTypes;
     }
 
-    @Override protected void visit(ExprNode node) {
-      super.visit(node);
-    }
-
     @Override protected void visitExprRootNode(ExprRootNode node) {
       visitChildren(node);
-      ExprNode expr = node.getChild(0);
+      ExprNode expr = node.getRoot();
       node.setType(expr.getType());
     }
 
@@ -1047,12 +1031,11 @@ public final class GenerateParseInfoVisitor
     @Override protected void visitFieldAccessNode(FieldAccessNode node) {
       visit(node.getBaseExprChild());
       SoyType baseType = node.getBaseExprChild().getType();
-      if (baseType instanceof SoyProtoType) {
-        SoyObjectType protoType = (SoyObjectType) baseType;
-        String importName = protoType.getFieldImport(node.getFieldName(), SoyBackendKind.TOFU);
-        if (importName != null) {
-          protoTypes.add(importName);
-        }
+      if (baseType instanceof SoyObjectType) {
+        SoyObjectType objectType = (SoyObjectType) baseType;
+        Set<String> importedNames = objectType.getFieldAccessImports(
+            node.getFieldName(), SoyBackendKind.TOFU);
+        protoTypes.addAll(importedNames);
       }
     }
   }

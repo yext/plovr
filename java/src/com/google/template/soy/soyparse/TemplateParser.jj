@@ -45,7 +45,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.template.soy.soyparse.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.ErrorReporterImpl;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.internal.IdGenerator;
 import com.google.template.soy.soytree.CallBasicNode;
@@ -2350,29 +2352,31 @@ private DeclInfo Decl() :
  */
 private DeclInfo ParamDecl() :
 {
+  SourceItemInfo<Void> tagOpen;
   String cmdText;
   Token blockDocComment;
-  String tag;
-  boolean optional = false;
-  boolean injected = false;
+  DeclInfo.OptionalStatus optionalStatus = DeclInfo.OptionalStatus.REQUIRED;
+  DeclInfo.Type type = DeclInfo.Type.PARAM;
 }
 {
-  SoyTagOpen()
+  tagOpen = SoyTagOpen()
   (
     <CMD_NAME_PARAM_DECL>
-    { tag = "@param"; }
   |
     <CMD_NAME_INJECTED_PARAM_DECL>
-    { tag = "@inject"; injected = true; }
+    { type = DeclInfo.Type.INJECTED_PARAM; }
   )
 
-  [ <QMARK> { optional = true; } ]
+  [ <QMARK> { optionalStatus = DeclInfo.OptionalStatus.OPTIONAL; } ]
   <WS_AFTER_CMD_NAME>
 
   cmdText = CmdText()
   RegSoyTagClose()
 
-  { String desc; }
+    {
+      String desc;
+      SourceLocation sourceLocation;
+    }
   (
     LOOKAHEAD( ( <TOKEN_WS_NOT_NL> )* <BLOCK_DOC_COMMENT> )
 
@@ -2381,12 +2385,21 @@ private DeclInfo ParamDecl() :
     )*
 
     blockDocComment = <BLOCK_DOC_COMMENT>
-    { desc = blockDocComment.image; }
+    {
+      desc = blockDocComment.image;
+      sourceLocation = createSrcLoc(blockDocComment);
+    }
   |
-    { desc = null; }
+    {
+      desc = null;
+      // If there is no doc comment, just use the tag's source location.
+      sourceLocation = tagOpen.srcLocation();
+    }
   )
 
-  { return new DeclInfo(tag, cmdText, desc, optional); }
+  {
+    return new DeclInfo(type, optionalStatus, cmdText, desc, sourceLocation);
+  }
 }
 
 
@@ -2400,9 +2413,8 @@ private DeclInfo ParamDeclWithDocPrefix() :
 {
   String cmdText;
   Token blockDocComment;
-  String tag;
-  boolean optional = false;
-  boolean injected = false;
+  DeclInfo.OptionalStatus optionalStatus = DeclInfo.OptionalStatus.REQUIRED;
+  DeclInfo.Type type = DeclInfo.Type.PARAM;
 }
 {
   blockDocComment = <BLOCK_DOC_COMMENT>
@@ -2411,19 +2423,21 @@ private DeclInfo ParamDeclWithDocPrefix() :
   SoyTagOpen()
   (
     <CMD_NAME_PARAM_DECL>
-    { tag = "@param"; }
   |
     <CMD_NAME_INJECTED_PARAM_DECL>
-    { tag = "@inject"; injected = true; }
+    { type = DeclInfo.Type.INJECTED_PARAM; }
   )
 
-  [ <QMARK> { optional = true; } ]
+  [ <QMARK> { optionalStatus = DeclInfo.OptionalStatus.OPTIONAL; } ]
   <WS_AFTER_CMD_NAME>
 
   cmdText = CmdText()
   RegSoyTagClose()
 
-  { return new DeclInfo(tag, cmdText, blockDocComment.image, optional); }
+  {
+    return new DeclInfo(
+        type, optionalStatus, cmdText, blockDocComment.image, createSrcLoc(blockDocComment));
+  }
 }
 
 
@@ -2579,7 +2593,7 @@ private void StmtLookaheadHelper() :
 
 
 /**
- * MsgStmt -> MsgTag TemplateBlockForMsg ( FallbackmsgTag TemplateBlockForMsg )* EndMsgTag
+ * MsgStmt -> MsgTag TemplateBlockForMsg ( FallbackmsgTag TemplateBlockForMsg )? EndMsgTag
  */
 private MsgFallbackGroupNode MsgStmt() :
 {
@@ -2612,16 +2626,11 @@ private MsgFallbackGroupNode MsgStmt() :
     }
     templateBlockForMsg = TemplateBlockForMsg()
     { msgNode.addChildren(templateBlockForMsg); }
-  )*
+  )?
 
   EndMsgTag()
 
-  { // Currently, allow at most one 'fallbackmsg'.
-    if (msgFbGrpNode.numChildren() > 2) {
-      errorReporter.report(cmdText.srcLocation(), MULTIPLE_FALLBACK_MSGS);
-    }
-    return msgFbGrpNode;
-  }
+  { return msgFbGrpNode; }
 }
 
 

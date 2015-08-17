@@ -20,17 +20,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.template.soy.base.SourceLocation;
-import com.google.template.soy.base.SoySyntaxException;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.SoyError;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 
 /**
  * A class for parsing attributes out of command text.
@@ -44,8 +41,9 @@ public final class CommandTextAttributesParser {
       = SoyError.of("Unsupported attribute ''{0}'' in ''{1}'' command text ({2}).");
   private static final SoyError DUPLICATE_ATTRIBUTE
       = SoyError.of("Duplicate attribute ''{0}'' in ''{1}'' command text ({2}).");
-  private static final SoyError INVALID_ATTRIBUTE_VALUE
-      = SoyError.of("Invalid value for attribute ''{0}'' in ''{1}'' command text ({2}).");
+  private static final SoyError INVALID_ATTRIBUTE_VALUE = SoyError.of(
+      "Invalid value for attribute ''{0}'' in ''{1}'' command text ({2}). "
+      + "Valid values are {3}.");
   private static final SoyError MISSING_REQUIRED_ATTRIBUTE
       = SoyError.of("Missing required attribute ''{0}'' in ''{1}'' command text ({2}).");
 
@@ -88,22 +86,6 @@ public final class CommandTextAttributesParser {
       Preconditions.checkArgument(attribute.allowedValues.contains(attribute.defaultValue));
     }
     supportedAttributeNames = supportedAttributeNamesBuilder.build();
-  }
-
-
-  /**
-   * Parses a command text string into a map of attributes names to values. The command text is
-   * assumed to be for the Soy command that this parser handles.
-   *
-   * @param commandText The command text to parse.
-   * @return A map from attribute names to values.
-   * @throws SoySyntaxException If a syntax error is encountered.
-   */
-  Map<String, String> parse(String commandText) throws SoySyntaxException {
-    TransitionalThrowingErrorReporter errorManager = new TransitionalThrowingErrorReporter();
-    Map<String, String> result = parse(commandText, errorManager, SourceLocation.UNKNOWN);
-    errorManager.throwIfErrorsPresent();
-    return result;
   }
 
   /**
@@ -163,7 +145,8 @@ public final class CommandTextAttributesParser {
               INVALID_ATTRIBUTE_VALUE,
               supportedAttribute.name,
               commandName,
-              commandText);
+              commandText,
+              supportedAttribute.allowedValues.toString());
         }
 
       } else {

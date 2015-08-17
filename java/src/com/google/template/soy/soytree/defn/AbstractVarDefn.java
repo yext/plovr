@@ -24,7 +24,7 @@ import com.google.template.soy.types.SoyType;
  * Implementation of common features of {@link VarDefn}.
  *
  */
-public abstract class AbstractVarDefn implements VarDefn {
+abstract class AbstractVarDefn implements VarDefn {
 
   /** The name of the value. */
   private final String name;
@@ -66,6 +66,7 @@ public abstract class AbstractVarDefn implements VarDefn {
   @Override public int localVariableIndex() {
     return localVariableIndex;
   }
-
-  @Override public abstract AbstractVarDefn clone();
+  @Override public String toString() {
+    return getClass().getSimpleName() + "{name = " + name() + "}";
+  }
 }

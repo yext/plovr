@@ -17,14 +17,13 @@
 package com.google.template.soy.soytree;
 
 import com.google.template.soy.base.SourceLocation;
-import com.google.template.soy.base.SoySyntaxException;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.exprtree.StringNode;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
 import com.google.template.soy.soytree.SoyNode.MsgBlockNode;
 
 /**
@@ -51,8 +50,8 @@ public final class MsgSelectCaseNode extends CaseOrDefaultNode implements MsgBlo
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private MsgSelectCaseNode(MsgSelectCaseNode orig) {
-    super(orig);
+  private MsgSelectCaseNode(MsgSelectCaseNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.caseValue = orig.caseValue;
   }
 
@@ -68,16 +67,17 @@ public final class MsgSelectCaseNode extends CaseOrDefaultNode implements MsgBlo
   }
 
 
-  @Override public MsgSelectCaseNode clone() {
-    return new MsgSelectCaseNode(this);
+  @Override public MsgSelectCaseNode copy(CopyState copyState) {
+    return new MsgSelectCaseNode(this, copyState);
   }
 
   /**
    * Builder for {@link MsgSelectCaseNode}.
    */
   public static final class Builder {
-    public static final MsgSelectCaseNode ERROR
-        = new MsgSelectCaseNode(-1, SourceLocation.UNKNOWN, "error", "error");
+    private static MsgSelectCaseNode error() {
+      return new MsgSelectCaseNode(-1, SourceLocation.UNKNOWN, "error", "error");
+    }
 
     private final int id;
     private final String commandText;
@@ -96,7 +96,7 @@ public final class MsgSelectCaseNode extends CaseOrDefaultNode implements MsgBlo
 
     /**
      * Returns a new {@link MsgSelectCaseNode} built from the builder's state. If the builder's
-     * state is invalid, errors are reported to the {@code errorReporter} and {@link Builder#ERROR}
+     * state is invalid, errors are reported to the {@code errorReporter} and {@link Builder#error}
      * is returned.
      */
     public MsgSelectCaseNode build(ErrorReporter errorReporter) {
@@ -107,29 +107,16 @@ public final class MsgSelectCaseNode extends CaseOrDefaultNode implements MsgBlo
               .parseExpression());
 
       // Make sure the expression is a string.
-      if (!(strLit.numChildren() == 1 && strLit.getChild(0) instanceof StringNode)) {
+      if (!(strLit.numChildren() == 1 && strLit.getRoot() instanceof StringNode)) {
         errorReporter.report(sourceLocation, INVALID_STRING_FOR_SELECT_CASE);
       }
 
       if (errorReporter.errorsSince(checkpoint)) {
-        return ERROR;
+        return error();
       }
 
-      String caseValue = ((StringNode) (strLit.getChild(0))).getValue();
+      String caseValue = ((StringNode) (strLit.getRoot())).getValue();
       return new MsgSelectCaseNode(id, sourceLocation, commandText, caseValue);
-    }
-
-    /**
-     * Returns a new {@link LetContentNode} built from the builder's state.
-     * @throws SoySyntaxException if the builder's state is invalid.
-     * TODO(user): remove. Only needed by
-     * {@link com.google.template.soy.parsepasses.RewriteGenderMsgsVisitor}.
-     */
-    public MsgSelectCaseNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
-      MsgSelectCaseNode node = build(errorReporter);
-      errorReporter.throwIfErrorsPresent();
-      return node;
     }
   }
 }

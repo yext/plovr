@@ -17,16 +17,14 @@
 package com.google.template.soy.jbcsrc;
 
 import static com.google.template.soy.jbcsrc.BytecodeUtils.defineDefaultConstructor;
-import static com.google.template.soy.jbcsrc.CompiledTemplateMetadata.GENERATED_CONSTRUCTOR;
 import static com.google.template.soy.jbcsrc.LocalVariable.createLocal;
 import static com.google.template.soy.jbcsrc.LocalVariable.createThisVar;
-import static org.objectweb.asm.ClassWriter.COMPUTE_FRAMES;
-import static org.objectweb.asm.ClassWriter.COMPUTE_MAXS;
+import static com.google.template.soy.jbcsrc.StandardNames.FACTORY_CLASS;
 
 import com.google.template.soy.data.SoyRecord;
 import com.google.template.soy.jbcsrc.api.CompiledTemplate;
 
-import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -49,6 +47,9 @@ final class TemplateFactoryCompiler {
   private static final String[] INTERFACES =
       { Type.getInternalName(CompiledTemplate.Factory.class) };
 
+  private static final int FACTORY_ACCESS = 
+      Opcodes.ACC_PUBLIC + Opcodes.ACC_FINAL;
+
   private static final Method CREATE_METHOD;
   static {
     try {
@@ -61,32 +62,35 @@ final class TemplateFactoryCompiler {
   }
 
   private final CompiledTemplateMetadata template;
+  private final InnerClasses innerClasses;
 
-  TemplateFactoryCompiler(CompiledTemplateMetadata currentClass) {
+  TemplateFactoryCompiler(CompiledTemplateMetadata currentClass, InnerClasses innerClasses) {
     this.template = currentClass;
+    this.innerClasses = innerClasses;
   }
 
   /** Compiles the factory. */
-  ClassData compile() {
-    ClassWriter cw = new ClassWriter(COMPUTE_FRAMES | COMPUTE_MAXS);
-
+  void compile() {
+    SoyClassWriter cw = new SoyClassWriter();
+    TypeInfo factoryType = innerClasses.registerInnerClass(FACTORY_CLASS, FACTORY_ACCESS);
     cw.visit(Opcodes.V1_7,
-        Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER + Opcodes.ACC_FINAL,
-        template.factory().type().getInternalName(),
+        FACTORY_ACCESS,
+        factoryType.internalName(),
         null, // not a generic type
         Type.getInternalName(Object.class), // super class
         INTERFACES);
+    innerClasses.registerAsInnerClass(cw, factoryType);
 
     generateStaticInitializer(cw);
-    defineDefaultConstructor(cw, template.factory());
-    generateCreateMethod(cw);
+    defineDefaultConstructor(cw, factoryType);
+    generateCreateMethod(cw, factoryType);
     cw.visitEnd();
     byte[] byteArray = cw.toByteArray();
-    return ClassData.create(template.factory(), byteArray);
+    innerClasses.add(ClassData.create(factoryType, byteArray));
   }
 
   /**
-   * Generates a static inializer that references the CompiledTemplate class to force eager
+   * Generates a static initializer that references the CompiledTemplate class to force eager
    * classloading (and thus verification errors). For example, <pre>{@code
    *   static {
    *     Class<?> clz = GeneratedTemplateClass.class;
@@ -97,13 +101,14 @@ final class TemplateFactoryCompiler {
    * is more mature since it is likely that servers ship dead templates and there is no point
    * loading them.
    */
-  private void generateStaticInitializer(ClassWriter cw) {
+  private void generateStaticInitializer(ClassVisitor cv) {
     GeneratorAdapter ga = new GeneratorAdapter(
         Opcodes.ACC_STATIC,
         BytecodeUtils.CLASS_INIT,
         null /* no generic signature */,
         null /* no checked exceptions */,
-        cw);
+        cv);
+    ga.visitCode();
     ga.push(template.typeInfo().type());
     ga.visitVarInsn(Opcodes.ASTORE, 0);
     ga.returnValue();
@@ -114,35 +119,24 @@ final class TemplateFactoryCompiler {
    * Writes the {@link CompiledTemplate.Factory#create} method, which directly delegates to the
    * constructor of the {@link #template}.
    */
-  private void generateCreateMethod(ClassWriter cw) {
+  private void generateCreateMethod(ClassVisitor cv, TypeInfo factoryType) {
     final Label start = new Label();
     final Label end = new Label();
-    final LocalVariable thisVar = createThisVar(template.factory(), start, end);
+    final LocalVariable thisVar = createThisVar(factoryType, start, end);
     final LocalVariable paramsVar = 
         createLocal("params", 1, Type.getType(SoyRecord.class), start, end);
     final LocalVariable ijVar = createLocal("ij", 2, Type.getType(SoyRecord.class), start, end);
-    Statement constructorBody = new Statement() {
-      @Override void doGen(GeneratorAdapter ga) {
+    final Statement returnTemplate = 
+        Statement.returnExpression(template.constructor().construct(paramsVar, ijVar));
+    new Statement() {
+      @Override void doGen(CodeBuilder ga) {
         ga.mark(start);
-        ga.newInstance(template.typeInfo().type());
-        ga.dup();
-        paramsVar.gen(ga);
-        ijVar.gen(ga);
-        ga.invokeConstructor(template.typeInfo().type(), GENERATED_CONSTRUCTOR);
-        ga.returnValue();
+        returnTemplate.gen(ga);
         ga.mark(end);
         thisVar.tableEntry(ga);
         paramsVar.tableEntry(ga);
         ijVar.tableEntry(ga);
       }
-    };
-    GeneratorAdapter ga = new GeneratorAdapter(
-        Opcodes.ACC_PUBLIC,
-        CREATE_METHOD,
-        null /* no generic signature */,
-        null /* no checked exceptions */,
-        cw);
-    constructorBody.gen(ga);
-    ga.endMethod();
+    }.writeMethod(Opcodes.ACC_PUBLIC, CREATE_METHOD, cv);
   }
 }

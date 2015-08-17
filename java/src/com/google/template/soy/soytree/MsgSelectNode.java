@@ -18,10 +18,11 @@ package com.google.template.soy.soytree;
 
 import com.google.common.collect.ImmutableList;
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprRootNode;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.SoyNode.ExprHolderNode;
 import com.google.template.soy.soytree.SoyNode.MsgSubstUnitNode;
 import com.google.template.soy.soytree.SoyNode.SplitLevelTopNode;
@@ -68,7 +69,7 @@ public final class MsgSelectNode extends AbstractParentCommandNode<CaseOrDefault
     // really be parsed in CallNode.
     baseSelectVarName =
         MsgSubstUnitBaseVarNameUtils.genNaiveBaseNameForExpr(
-            selectExpr.getChild(0), FALLBACK_BASE_SELECT_VAR_NAME);
+            selectExpr.getRoot(), FALLBACK_BASE_SELECT_VAR_NAME);
   }
 
 
@@ -90,7 +91,7 @@ public final class MsgSelectNode extends AbstractParentCommandNode<CaseOrDefault
     this.selectExpr = selectExpr;
     this.baseSelectVarName = (baseSelectVarName != null) ? baseSelectVarName :
         MsgSubstUnitBaseVarNameUtils.genNaiveBaseNameForExpr(
-            selectExpr.getChild(0), FALLBACK_BASE_SELECT_VAR_NAME);
+            selectExpr.getRoot(), FALLBACK_BASE_SELECT_VAR_NAME);
   }
 
 
@@ -98,9 +99,9 @@ public final class MsgSelectNode extends AbstractParentCommandNode<CaseOrDefault
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private MsgSelectNode(MsgSelectNode orig) {
-    super(orig);
-    this.selectExpr = orig.selectExpr.clone();
+  private MsgSelectNode(MsgSelectNode orig, CopyState copyState) {
+    super(orig, copyState);
+    this.selectExpr = orig.selectExpr.copy(copyState);
     this.baseSelectVarName = orig.baseSelectVarName;
   }
 
@@ -138,8 +139,8 @@ public final class MsgSelectNode extends AbstractParentCommandNode<CaseOrDefault
   }
 
 
-  @Override public MsgSelectNode clone() {
-    return new MsgSelectNode(this);
+  @Override public MsgSelectNode copy(CopyState copyState) {
+    return new MsgSelectNode(this, copyState);
   }
 
   /**

@@ -21,7 +21,8 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.template.soy.base.internal.SoyFileKind;
 import com.google.template.soy.base.internal.SoyFileSupplier;
 import com.google.template.soy.base.internal.SoyFileSupplier.Version;
-import com.google.template.soy.internal.base.Pair;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.shared.SoyAstCache.VersionedFile;
 import com.google.template.soy.soytree.SoyFileNode;
 
 import junit.framework.TestCase;
@@ -36,8 +37,14 @@ public final class SoyAstCacheTest extends TestCase {
   private SoyAstCache cache = new SoyAstCache();
   private Version version1 = EasyMock.createMock(Version.class);
   private Version version2 = EasyMock.createMock(Version.class);
-  private SoyFileNode fileNode1
-      = new SoyFileNode(0xdeadbeef, "test.soy", SoyFileKind.SRC, null, null, null);
+  private SoyFileNode fileNode1 = new SoyFileNode(
+      0xdeadbeef,
+      "test.soy",
+      SoyFileKind.SRC,
+      ExplodingErrorReporter.get(),
+      null /* delpackageCmdText */,
+      null /* namespaceCmdText */,
+      null /* aliasCmdTexts */);
   private SoyFileSupplier supplier1 = EasyMock.createMock(SoyFileSupplier.class);
   private SoyFileSupplier supplier2 = EasyMock.createMock(SoyFileSupplier.class);
 
@@ -58,21 +65,21 @@ public final class SoyAstCacheTest extends TestCase {
   public void testGetSet() {
 
     // Matching version.
-    cache.put(supplier1, version2, fileNode1);
-    Pair<SoyFileNode, Version> pair = cache.get(supplier1);
-    assertThat(pair.first.getId()).isEqualTo(0xdeadbeef);
-    assertThat(pair.first).isNotSameAs(fileNode1);
-    assertThat(pair.second).isEqualTo(version2);
+    cache.put(supplier1, VersionedFile.of(fileNode1, version2));
+    VersionedFile versionedFile = cache.get(supplier1);
+    assertThat(versionedFile.file().getId()).isEqualTo(0xdeadbeef);
+    assertThat(versionedFile.file()).isNotSameAs(fileNode1);
+    assertThat(versionedFile.version()).isEqualTo(version2);
 
     assertThat(cache.get(supplier2)).isNull();
 
-    pair = cache.get(supplier1);
-    assertThat(pair.first.getId()).isEqualTo(0xdeadbeef);
-    assertThat(pair.first).isNotSameAs(fileNode1);
-    assertThat(pair.second).isEqualTo(version2);
+    versionedFile = cache.get(supplier1);
+    assertThat(versionedFile.file().getId()).isEqualTo(0xdeadbeef);
+    assertThat(versionedFile.file()).isNotSameAs(fileNode1);
+    assertThat(versionedFile.version()).isEqualTo(version2);
 
     // Non matching version.
-    cache.put(supplier1, version1, fileNode1);
+    cache.put(supplier1, VersionedFile.of(fileNode1, version1));
     assertThat(cache.get(supplier1)).isNull();
     assertThat(cache.get(supplier2)).isNull();
   }

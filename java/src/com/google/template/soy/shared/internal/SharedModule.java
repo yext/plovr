@@ -32,7 +32,6 @@ import com.google.template.soy.coredirectives.CoreDirectivesModule;
 import com.google.template.soy.data.SoyData;
 import com.google.template.soy.data.SoyValue;
 import com.google.template.soy.internal.i18n.BidiGlobalDir;
-import com.google.template.soy.msgs.SoyMsgBundle;
 import com.google.template.soy.shared.restricted.ApiCallScopeBindingAnnotations.ApiCall;
 import com.google.template.soy.shared.restricted.ApiCallScopeBindingAnnotations.IsUsingIjData;
 import com.google.template.soy.shared.restricted.ApiCallScopeBindingAnnotations.LocaleString;
@@ -42,8 +41,6 @@ import com.google.template.soy.shared.restricted.SoyJavaPrintDirective;
 import com.google.template.soy.shared.restricted.SoyJavaRuntimeFunction;
 import com.google.template.soy.shared.restricted.SoyJavaRuntimePrintDirective;
 import com.google.template.soy.shared.restricted.SoyPrintDirective;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporterImpl;
 import com.google.template.soy.types.SoyTypeProvider;
 import com.google.template.soy.types.SoyTypeRegistry;
 
@@ -52,8 +49,8 @@ import java.lang.annotation.Target;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.inject.Singleton;
 
+import javax.inject.Singleton;
 
 /**
  * Guice module for shared classes.
@@ -61,8 +58,7 @@ import javax.inject.Singleton;
  * <p> Important: Do not use outside of Soy code (treat as superpackage-private).
  *
  */
-public class SharedModule extends AbstractModule {
-
+public final class SharedModule extends AbstractModule {
 
   /**
    * Annotation for values provided by SharedModule (that need to be distinguished).
@@ -92,9 +88,6 @@ public class SharedModule extends AbstractModule {
     // Bind unscoped providers for parameters in ApiCallScope (these throw exceptions).
     bind(Boolean.class).annotatedWith(IsUsingIjData.class)
         .toProvider(GuiceSimpleScope.<Boolean>getUnscopedProvider())
-        .in(ApiCallScope.class);
-    bind(SoyMsgBundle.class)
-        .toProvider(GuiceSimpleScope.<SoyMsgBundle>getUnscopedProvider())
         .in(ApiCallScope.class);
     bind(String.class).annotatedWith(LocaleString.class)
         .toProvider(GuiceSimpleScope.<String>getUnscopedProvider())
@@ -214,13 +207,6 @@ public class SharedModule extends AbstractModule {
           }
         });
   }
-
-  @Provides
-  @Singleton
-  ErrorReporter provideErrorReporter() {
-    return new ErrorReporterImpl();
-  }
-
 
   /**
    * Private helper class for provideSoyJavaDirectivesMap() to adapt SoyJavaRuntimePrintDirective to

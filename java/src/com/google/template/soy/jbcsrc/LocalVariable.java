@@ -17,14 +17,13 @@
 package com.google.template.soy.jbcsrc;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.auto.value.AutoValue;
 import com.google.common.base.Optional;
 
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
 
 /**
  * A local variable representation.
@@ -38,44 +37,76 @@ import org.objectweb.asm.commons.GeneratorAdapter;
  * </ul>
  * 
  * <p>Note: This class does not attempt to make use of the convenience methods on generator adapter
- * such as {@link GeneratorAdapter#newLocal(Type)} or {@link GeneratorAdapter#loadArg(int)} that
+ * such as {@link CodeBuilder#newLocal(Type)} or {@link CodeBuilder#loadArg(int)} that
  * make it easier to work with local variables (and calculating local variable indexes).  Instead
- * we push this responsibility onto our caller.  This is because GeneratorAdapter doesn't make it
+ * we push this responsibility onto our caller.  This is because CodeBuilder doesn't make it
  * possible to generate local variable debugging tables in this case (e.g. there is no way to map
  * a method parameter index to a local variable index).
  */
-@AutoValue abstract class LocalVariable extends Expression {
+final class LocalVariable extends Expression {
   // TODO(lukes): the fact that you need to specify the start and end labels during construction
   // ends up being awkward... Due to the fact that it is unclear who is responsible for actually
   // visiting the labels.  Maybe this object should be label agnostic and the labels should just be
   // parameters to tableEntry?
 
   static LocalVariable createThisVar(TypeInfo owner, Label start, Label end) {
-    return new AutoValue_LocalVariable("this", owner.type(), 0, start, end);
+    return new LocalVariable("this", owner.type(), 0, start, end, Feature.NON_NULLABLE);
   }
 
   static LocalVariable createLocal(String name, int index, Type type, Label start, Label end) {
     checkArgument(!name.equals("this"));
-    return new AutoValue_LocalVariable(name, type, index, start, end);
+    return new LocalVariable(name, type, index, start, end);
   }
 
+  private final String variableName;
+  private final int index;
+  private final Label start;
+  private final Label end;
+  
+  private LocalVariable(
+      String variableName, Type type, int index, Label start, Label end, Feature ...features) {
+    super(type, Feature.CHEAP /* locals are always cheap */, features);
+    this.variableName = checkNotNull(variableName);
+    this.index = index;
+    this.start = checkNotNull(start);
+    this.end = checkNotNull(end);
+  }
+  
   /** The name of the variable, ends up in debugging tables. */
-  abstract String variableName();
-  @Override abstract Type resultType();
+  String variableName() {
+    return variableName;
+  }
 
-  abstract int index();
-
+  int index() {
+    return index;
+  }
+  
   /** A label defining the earliest point at which this variable is defined. */
-  abstract Label start();
-
+  Label start() {
+    return start;
+  }
+  
   /** A label defining the latest point at which this variable is defined. */
-  abstract Label end();
+  Label end() {
+    return end;
+  }
 
+  @Override LocalVariable asCheap() {
+    return this;
+  }
+  
+  @Override LocalVariable asNonNullable() {
+    if (isNonNullable()) {
+      return this;
+    }
+    return new LocalVariable(variableName, resultType(), index, start, end, Feature.NON_NULLABLE);
+  }
+  
   /**
    * Write a local variable table entry for this variable.  This informs debuggers about variable
    * names, types and lifetime.
    */
-  void tableEntry(GeneratorAdapter mv) {
+  void tableEntry(CodeBuilder mv) {
     mv.visitLocalVariable(
         variableName(),
         resultType().getDescriptor(),
@@ -85,7 +116,7 @@ import org.objectweb.asm.commons.GeneratorAdapter;
         index());
   }
 
-  @Override public void doGen(GeneratorAdapter mv) {
+  @Override public void doGen(CodeBuilder mv) {
     mv.visitVarInsn(resultType().getOpcode(Opcodes.ILOAD), index());
   }
 
@@ -110,7 +141,7 @@ import org.objectweb.asm.commons.GeneratorAdapter;
   private Statement store(final Expression expr, final Optional<Label> firstVarInstruction) {
     expr.checkAssignableTo(resultType());
     return new Statement() {
-      @Override void doGen(GeneratorAdapter adapter) {
+      @Override void doGen(CodeBuilder adapter) {
         expr.gen(adapter);
         if (firstVarInstruction.isPresent()) {
           adapter.mark(firstVarInstruction.get());

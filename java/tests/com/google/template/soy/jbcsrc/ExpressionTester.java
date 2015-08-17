@@ -17,8 +17,6 @@
 package com.google.template.soy.jbcsrc;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static org.objectweb.asm.ClassWriter.COMPUTE_FRAMES;
-import static org.objectweb.asm.ClassWriter.COMPUTE_MAXS;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
@@ -28,7 +26,6 @@ import com.google.common.truth.SubjectFactory;
 import com.google.common.truth.Truth;
 
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.GeneratorAdapter;
@@ -96,7 +93,13 @@ public final class ExpressionTester {
     
     ExpressionSubject evaluatesTo(boolean expected) {
       compile();
-      boolean actual = ((BooleanInvoker) invoker).invoke();
+      boolean actual;
+      try {
+        actual = ((BooleanInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to", expected, "fails with", t);
+        return this;
+      }
       if (actual != expected) {
         failWithBadResults("evaluates to", expected, "evaluates to", actual);
       }
@@ -105,7 +108,13 @@ public final class ExpressionTester {
 
     ExpressionSubject evaluatesTo(double expected) {
       compile();
-      double actual = ((DoubleInvoker) invoker).invoke();
+      double actual;
+      try {
+        actual = ((DoubleInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to", expected, "fails with", t);
+        return this;
+      }
       if (actual != expected) {
         failWithBadResults("evaluates to", expected, "evaluates to", actual);
       }
@@ -114,7 +123,13 @@ public final class ExpressionTester {
 
     ExpressionSubject evaluatesTo(long expected) {
       compile();
-      long actual = ((LongInvoker) invoker).invoke();
+      long actual;
+      try {
+        actual = ((LongInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to", expected, "fails with", t);
+        return this;
+      }
       if (actual != expected) {
         failWithBadResults("evaluates to", expected, "evaluates to", actual);
       }
@@ -123,7 +138,13 @@ public final class ExpressionTester {
 
     ExpressionSubject evaluatesTo(char expected) {
       compile();
-      char actual = ((CharInvoker) invoker).invoke();
+      char actual;
+      try {
+        actual = ((CharInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to", expected, "fails with", t);
+        return this;
+      }
       if (actual != expected) {
         failWithBadResults("evaluates to", expected, "evaluates to", actual);
       }
@@ -132,20 +153,48 @@ public final class ExpressionTester {
 
     ExpressionSubject evaluatesTo(Object expected) {
       compile();
-      Object actual = ((ObjectInvoker) invoker).invoke();
+      Object actual;
+      try {
+        actual = ((ObjectInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to", expected, "fails with", t);
+        return this;
+      }
       if (!Objects.equal(actual, expected)) {
         failWithBadResults("evaluates to", expected, "evaluates to", actual);
       }
       return this;
     }
+    
+    ExpressionSubject evaluatesToInstanceOf(Class<?> expected) {
+      compile();
+      Object actual;
+      try {
+        actual = ((ObjectInvoker) invoker).invoke();
+      } catch (Throwable t) {
+        failWithBadResults("evalutes to instance of", expected, "fails with", t);
+        return this;
+      }
+      if (!expected.isInstance(actual)) {
+        failWithBadResults("evaluates to instance of", expected, "evaluates to", actual);
+      }
+      return this;
+    }
+    
+    ExpressionSubject throwsException(Class<? extends Throwable> clazz) {
+      return throwsException(clazz, null);
+    }
 
-    ExpressionSubject throwsExceptionOfType(Class<? extends Throwable> clazz) {
+    ExpressionSubject throwsException(Class<? extends Throwable> clazz, String message) {
       compile();
       try {
         invoker.voidInvoke();
       } catch (Throwable t) {
         if (!clazz.isInstance(t)) {
           failWithBadResults("throws an exception of type", clazz, "fails with", t);
+        }
+        if (message != null && !t.getMessage().equals(message)) {
+          failWithBadResults("throws an exception with message", message, "fails with", t);
         }
         return this;
       }
@@ -214,7 +263,7 @@ public final class ExpressionTester {
     TypeInfo generatedType = TypeInfo.create(
         ExpressionTester.class.getPackage().getName() + "." + targetInterface.getSimpleName() 
             + "Impl");
-    ClassWriter cw = new ClassWriter(COMPUTE_FRAMES | COMPUTE_MAXS);
+    SoyClassWriter cw = new SoyClassWriter();
     cw.visit(Opcodes.V1_7, 
         Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER + Opcodes.ACC_FINAL,
         generatedType.type().getInternalName(), 
@@ -223,10 +272,7 @@ public final class ExpressionTester {
         new String[] {Type.getInternalName(targetInterface) });
     BytecodeUtils.defineDefaultConstructor(cw, generatedType);
     Method invoke = Method.getMethod(invokeMethod);
-    GeneratorAdapter generator = new GeneratorAdapter(Opcodes.ACC_PUBLIC, invoke, null, null, cw);
-    expr.gen(generator);
-    generator.returnValue();
-    generator.endMethod();
+    Statement.returnExpression(expr).writeMethod(Opcodes.ACC_PUBLIC, invoke, cw);
 
     Method voidInvoke;
     try {
@@ -234,7 +280,9 @@ public final class ExpressionTester {
     } catch (NoSuchMethodException | SecurityException e) {
       throw new RuntimeException(e);  // this method definitely exists
     }
-    generator = new GeneratorAdapter(Opcodes.ACC_PUBLIC, voidInvoke, null, null, cw);
+    GeneratorAdapter generator = 
+        new GeneratorAdapter(Opcodes.ACC_PUBLIC, voidInvoke, null, null, cw);
+    generator.visitCode();
     generator.loadThis();
     generator.invokeVirtual(generatedType.type(), invoke);
     generator.visitInsn(Opcodes.RETURN);

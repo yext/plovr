@@ -21,11 +21,11 @@ import com.google.common.collect.Lists;
 import com.google.template.soy.base.internal.SoyFileKind;
 import com.google.template.soy.base.internal.SoyFileSupplier;
 import com.google.template.soy.basetree.SyntaxVersion;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.AutoEscapingType;
 import com.google.template.soy.shared.SharedTestUtils;
 import com.google.template.soy.shared.SoyAstCache;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.types.SoyTypeRegistry;
 
@@ -113,7 +113,7 @@ public final class SoyFileSetParserBuilder {
    *   <li>{@link com.google.template.soy.parsepasses.VerifyPhnameAttrOnlyOnPlaceholdersVisitor}
    *   </li>
    *   <li>{@link com.google.template.soy.sharedpasses.CheckCallingParamTypesVisitor}</li>
-   *   <li>{@link com.google.template.soy.sharedpasses.CheckSoyDocVisitor}</li>
+   *   <li>{@link  com.google.template.soy.sharedpasses.CheckTemplateParamsVisitor}</li>
    *   <li>{@link com.google.template.soy.sharedpasses.CheckTemplateVisibility}</li>
    *   <li>{@link com.google.template.soy.sharedpasses.ReportSyntaxVersionErrorsVisitor}</li>
    * </ul>
@@ -130,7 +130,7 @@ public final class SoyFileSetParserBuilder {
    * <ul>
    *   <li>{@link com.google.template.soy.parsepasses.RewriteGenderMsgsVisitor}</li>
    *   <li>{@link com.google.template.soy.parsepasses.ReplaceHasDataFunctionVisitor}</li>
-   *   <li>{@link com.google.template.soy.parsepasses.RewriteRemainderNodesVisitor}</li>
+   *   <li>{@link com.google.template.soy.parsepasses.RewriteRemaindersVisitor}</li>
    *   <li>{@link com.google.template.soy.parsepasses.RewriteNullCoalescingOpVisitor}</li>
    *   <li>{@link com.google.template.soy.parsepasses.SetDefaultForDelcallAllowsEmptyDefaultVisitor}
    *   <li>{@link com.google.template.soy.parsepasses.SetFullCalleeNamesVisitor}</li>

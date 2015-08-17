@@ -16,12 +16,31 @@
 
 package com.google.template.soy.msgs.restricted;
 
+import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableList;
+
+import javax.annotation.Nullable;
 
 /**
  * Represents a part of a message (i.e. raw text or placeholder).
  *
  */
 public abstract class SoyMsgPart {
+  // TODO(lukes): there is a fair bit of code inspecting this type hierarchy via cascading
+  // instanceof tests.  Consider introducing a visitor api or an enum for fast switching.
+
+  /** A case in a plural or 'select' msg part. */
+  @AutoValue public abstract static class Case<T> {
+    public static <T> Case<T> create(T spec, Iterable<? extends SoyMsgPart> parts) {
+      return new AutoValue_SoyMsgPart_Case<>(spec, ImmutableList.copyOf(parts));
+    }
+
+    Case() {}
+
+    // null means default case
+    @Nullable public abstract T spec();
+    public abstract ImmutableList<SoyMsgPart> parts();
+  }
 
   // No methods.
 }

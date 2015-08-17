@@ -18,12 +18,21 @@ package com.google.template.soy.jbcsrc;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.template.soy.jbcsrc.BytecodeUtils.classFromAsmType;
+import static com.google.template.soy.jbcsrc.BytecodeUtils.constant;
+import static com.google.template.soy.jbcsrc.BytecodeUtils.logicalNot;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.template.soy.data.SanitizedContent.ContentKind;
+import com.google.template.soy.data.SoyList;
 import com.google.template.soy.data.SoyValue;
+import com.google.template.soy.soytree.CallNode;
+import com.google.template.soy.soytree.MsgNode;
+import com.google.template.soy.soytree.PrintNode;
 import com.google.template.soy.types.SoyType;
 import com.google.template.soy.types.SoyType.Kind;
+import com.google.template.soy.types.SoyTypes;
 import com.google.template.soy.types.aggregate.ListType;
 import com.google.template.soy.types.aggregate.MapType;
 import com.google.template.soy.types.aggregate.RecordType;
@@ -31,12 +40,15 @@ import com.google.template.soy.types.primitive.BoolType;
 import com.google.template.soy.types.primitive.FloatType;
 import com.google.template.soy.types.primitive.IntType;
 import com.google.template.soy.types.primitive.NullType;
+import com.google.template.soy.types.primitive.SanitizedType;
 import com.google.template.soy.types.primitive.StringType;
+import com.google.template.soy.types.primitive.UnknownType;
 
+import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -50,11 +62,11 @@ import java.util.Map;
  * but depending on the type they may also support additional unboxing conversions.
  */
 class SoyExpression extends Expression {
-  private static final ImmutableSet<Kind> STRING_KINDS = 
+  private static final ImmutableSet<Kind> STRING_KINDS =
       Sets.immutableEnumSet(Kind.STRING, Kind.HTML, Kind.ATTRIBUTES, Kind.JS, Kind.CSS, Kind.URI);
 
   static SoyExpression forSoyValue(SoyType type, Expression delegate) {
-    return new SoyExpression(type, type.javaType(), delegate);
+    return new SoyExpression(type, type.javaType(), delegate, Optional.<Expression>absent());
   }
 
   static SoyExpression forBool(Expression delegate) {
@@ -73,6 +85,10 @@ class SoyExpression extends Expression {
     return new SoyExpression(StringType.getInstance(), String.class, delegate);
   }
 
+  static SoyExpression forSanitizedString(Expression delegate, ContentKind kind) {
+    return new SoyExpression(SanitizedType.getTypeForContentKind(kind), String.class, delegate);
+  }
+
   static SoyExpression forList(ListType listType, Expression delegate) {
     return new SoyExpression(listType, List.class, delegate);
   }
@@ -85,10 +101,21 @@ class SoyExpression extends Expression {
     return new SoyExpression(recordType, Map.class, delegate);
   }
 
+  /**
+   * Returns an Expression that evaluates to a list containing all the items as boxed soy values.
+   */
+  static Expression asBoxedList(List<SoyExpression> items) {
+    List<Expression> childExprs = new ArrayList<>(items.size());
+    for (SoyExpression child : items) {
+      childExprs.add(child.box());
+    }
+    return BytecodeUtils.asList(childExprs);
+  }
+
   static final SoyExpression NULL =
-      new SoyExpression(NullType.getInstance(), Object.class, 
-          new SimpleExpression(Type.getType(Object.class), true) {
-            @Override void doGen(GeneratorAdapter adapter) {
+      new SoyExpression(NullType.getInstance(), Object.class,
+          new Expression(Type.getType(Object.class), Feature.CHEAP) {
+            @Override void doGen(CodeBuilder adapter) {
               adapter.visitInsn(Opcodes.ACONST_NULL);
             }
           });
@@ -98,7 +125,7 @@ class SoyExpression extends Expression {
         @Override
         SoyExpression box() {
           return new DefaultBoxed(BoolType.getInstance(), this,
-              FieldRef.BOOLEAN_DATA_TRUE.accessor());
+              FieldRef.BOOLEAN_DATA_TRUE.accessor(), Optional.<Expression>absent());
         }
       };
 
@@ -107,19 +134,26 @@ class SoyExpression extends Expression {
         @Override
         SoyExpression box() {
           return new DefaultBoxed(BoolType.getInstance(), this,
-              FieldRef.BOOLEAN_DATA_FALSE.accessor());
+              FieldRef.BOOLEAN_DATA_FALSE.accessor(), Optional.<Expression>absent());
         }
       };
 
   private final Class<?> clazz;
   private final SoyType soyType;
   private final Expression delegate;
+  private final Optional<Expression> renderContext;
 
   private SoyExpression(SoyType soyType, Class<?> clazz, Expression delegate) {
+    this(soyType, clazz, delegate, Optional.<Expression>absent());
+  }
+
+  private SoyExpression(SoyType soyType, Class<?> clazz, Expression delegate,
+      Optional<Expression> renderContext) {
+    super(delegate.resultType(), delegate.features());
     checkArgument(
         clazz.isAssignableFrom(classFromAsmType(delegate.resultType())),
-        "delegate with type %s isn't compatible with asserted SoyExpression type %s", 
-        delegate.resultType(), 
+        "delegate with type %s isn't compatible with asserted SoyExpression type %s",
+        delegate.resultType(),
         clazz);
     // If this is a boxed type, make sure the declared clazz is compatible
     // TODO(lukes): support this check for unboxed types as well.
@@ -129,17 +163,15 @@ class SoyExpression extends Expression {
     this.soyType = soyType;
     this.clazz = clazz;
     this.delegate = delegate;
+    this.renderContext = renderContext;
   }
 
-  @Override final Type resultType() {
-    return delegate.resultType();
+  /** Returns the {@link SoyType} of the expression. */
+  final SoyType soyType() {
+    return soyType;
   }
 
-  @Override final boolean isConstant() {
-    return delegate.isConstant();
-  }
-
-  @Override final void doGen(GeneratorAdapter adapter) {
+  @Override final void doGen(CodeBuilder adapter) {
     delegate.gen(adapter);
   }
 
@@ -153,8 +185,16 @@ class SoyExpression extends Expression {
    * it may in fact be a string.
    */
   boolean isKnownString() {
+    return soyType.getKind() == Kind.STRING;
+  }
+
+  boolean isKnownStringOrSanitizedContent() {
     // It 'is' a string if it is unboxed or is one of our string types
     return STRING_KINDS.contains(soyType.getKind());
+  }
+
+  boolean isKnownSanitizedContent() {
+    return soyType.getKind() != Kind.STRING && STRING_KINDS.contains(soyType.getKind());
   }
 
   /**
@@ -189,7 +229,11 @@ class SoyExpression extends Expression {
     return soyType.getKind() == Kind.RECORD;
   }
 
-  private boolean isBoxed() {
+  boolean isKnownBool() {
+    return soyType.getKind() == Kind.BOOL;
+  }
+
+  boolean isBoxed() {
     return SoyValue.class.isAssignableFrom(clazz);
   }
 
@@ -209,116 +253,288 @@ class SoyExpression extends Expression {
     if (isBoxed()) {
       return this;
     }
+    if (soyType.equals(NullType.getInstance())) {
+      return this;
+    }
+    // If null is expected and it is a reference type we want to propagate null through the boxing
+    // operation
+    if (!delegate.isNonNullable()) {
+      // now prefix with a null check and then box so null is preserved via 'boxing'
+      final Label end = new Label();
+      return new SoyExpression(SoyTypes.removeNull(soyType), clazz,
+          new Expression(resultType(), features().plus(Feature.NON_NULLABLE)) {
+            @Override void doGen(CodeBuilder adapter) {
+              delegate.gen(adapter);
+              adapter.dup();
+              adapter.ifNull(end);
+            }
+          }).box().labelEnd(end);
+    }
+    if (isKnownBool()) {
+      return asBoxed(MethodRef.BOOLEAN_DATA_FOR_VALUE.invoke(delegate));
+    }
     if (isKnownInt()) {
       return asBoxed(MethodRef.INTEGER_DATA_FOR_VALUE.invoke(delegate));
     }
     if (isKnownFloat()) {
       return asBoxed(MethodRef.FLOAT_DATA_FOR_VALUE.invoke(delegate));
     }
+    if (isKnownSanitizedContent()) {
+      return asBoxed(MethodRef.ORDAIN_AS_SAFE.invoke(delegate,
+          FieldRef.enumReference(((SanitizedType) soyType).getContentKind()).accessor()));
+    }
     if (isKnownString()) {
-      // TODO(lukes): we are losing some type information when we do string conversions. Use the
-      // SoyType
       return asBoxed(MethodRef.STRING_DATA_FOR_VALUE.invoke(delegate));
     }
     if (isKnownList()) {
       return asBoxed(MethodRef.LIST_IMPL_FOR_PROVIDER_LIST.invoke(delegate));
     }
-    if (isKnownMap()) {
+    if (isKnownMap() || isKnownRecord()) {
       return asBoxed(MethodRef.DICT_IMPL_FOR_PROVIDER_MAP.invoke(delegate));
     }
     if (soyType.getKind() == Kind.NULL) {
-      return asBoxed(FieldRef.NULL_DATA_INSTANCE.accessor());
+      return this;
     }
     throw new IllegalStateException("cannot box expression of type " + clazz);
   }
 
   private DefaultBoxed asBoxed(Expression expr) {
-    return new DefaultBoxed(soyType, this, expr);
+    return new DefaultBoxed(soyType, this, expr, renderContext);
+  }
+
+  /** Coerce this expression to a boolean value. */
+  SoyExpression coerceToBoolean() {
+    // First deal with primitives which don't have to care about null.
+    if (BytecodeUtils.isPrimitive(resultType())) {
+      return coercePrimitiveToBoolean();
+    }
+    if (delegate.isNonNullable()) {
+      return coerceNonNullableReferenceTypeToBoolean();
+    } else {
+      // If we are potentially nullable, then map null to false and run the normal logic recursively
+      // for the non-nullable branch.
+      final Label end = new Label();
+      return withSource(
+          new Expression(resultType(), features().plus(Feature.NON_NULLABLE)) {
+            @Override void doGen(CodeBuilder adapter) {
+              delegate.gen(adapter);
+              adapter.dup();
+              Label nonNull = new Label();
+              adapter.ifNonNull(nonNull);
+              adapter.pop();
+              adapter.pushBoolean(false);
+              adapter.goTo(end);
+              adapter.mark(nonNull);
+            }
+          }).coerceToBoolean().labelEnd(end);
+    }
+  }
+
+  private SoyExpression coercePrimitiveToBoolean() {
+    if (resultType().equals(Type.BOOLEAN_TYPE)) {
+      return this;
+    } else if (resultType().equals(Type.DOUBLE_TYPE)) {
+      return forBool(MethodRef.RUNTIME_COERCE_DOUBLE_TO_BOOLEAN.invoke(delegate));
+    } else if (resultType().equals(Type.LONG_TYPE)) {
+      return forBool(BytecodeUtils.compare(Opcodes.IFNE, delegate, BytecodeUtils.constant(0L)));
+    } else {
+      throw new AssertionError(
+          "resultType(): " + resultType() + " is not a valid type for a SoyExpression");
+    }
+  }
+
+  private SoyExpression coerceNonNullableReferenceTypeToBoolean() {
+    if (isBoxed()) {
+      // If we are boxed, just call the SoyValue method
+      return forBool(delegate.invoke(MethodRef.SOY_VALUE_COERCE_TO_BOOLEAN));
+    }
+    // unboxed non-primitive types.  This would be strings, protos or lists
+    if (clazz.equals(String.class)) {
+      return forBool(logicalNot(delegate.invoke(MethodRef.STRING_IS_EMPTY)));
+    }
+    // All other types are always truthy, but we still need to eval the delegate in case it has
+    // side effects or contains a null exit branch.
+    return forBool(
+            new Expression(Type.BOOLEAN_TYPE, delegate.features()) {
+              @Override void doGen(CodeBuilder adapter) {
+                delegate.gen(adapter);
+                adapter.pop();
+                adapter.pushBoolean(true);
+              }
+            });
+  }
+
+  /** Coerce this expression to a string value. */
+  SoyExpression coerceToString() {
+    if (clazz.equals(String.class)) {
+      return this;
+    }
+    if (BytecodeUtils.isPrimitive(resultType())) {
+      if (resultType().equals(Type.BOOLEAN_TYPE)) {
+        return forString(MethodRef.BOOLEAN_TO_STRING.invoke(delegate));
+      } else if (resultType().equals(Type.DOUBLE_TYPE)) {
+        return forString(MethodRef.DOUBLE_TO_STRING.invoke(delegate));
+      } else if (resultType().equals(Type.LONG_TYPE)) {
+        return forString(MethodRef.LONG_TO_STRING.invoke(delegate));
+      } else {
+        throw new AssertionError(
+            "resultType(): " + resultType() + " is not a valid type for a SoyExpression");
+      }
+    }
+    if (!isBoxed()) {
+      // this is for unboxed reference types (strings, lists, protos) String.valueOf handles null
+      // implicitly
+      return forString(MethodRef.STRING_VALUE_OF.invoke(delegate));
+    }
+    return forString(MethodRef.RUNTIME_COERCE_TO_STRING.invoke(delegate));
   }
 
   /**
-   * Converts this to a {@link SoyExpression} with a runtime type of {@code asType} if possible.
-   *
-   * <p>This will either be a type coercion or an unboxing operation (or return {@code this} if the
-   * type already matches). Note: type coercions may throw exceptions at runtime.
+   * Coerce to a double, useful for float-int comparisons
    */
-  SoyExpression convert(Class<?> asType) {
-    checkArgument(!SoyValue.class.isAssignableFrom(asType),
-        "Cannot use convert() to convert to a  SoyValue: %s", asType);
-    // no op conversion
+  SoyExpression coerceToDouble() {
+    if (clazz.equals(double.class)) {
+      return this;
+    }
+    if (clazz.equals(long.class)) {
+      return forFloat(BytecodeUtils.numericConversion(delegate, Type.DOUBLE_TYPE));
+    }
+    if (!isBoxed()) {
+      throw new UnsupportedOperationException("Can't convert " + resultType() + " to a double");
+    }
+    if (isKnownFloat()) {
+      return forFloat(delegate.invoke(MethodRef.SOY_VALUE_FLOAT_VALUE));
+    }
+    return forFloat(delegate.invoke(MethodRef.SOY_VALUE_NUMBER_VALUE));
+  }
+
+  /**
+   * Unboxes this to a {@link SoyExpression} with a runtime type of {@code asType}.
+   *
+   * <p>This method is appropriate when you know (likely via inspection of the {@link #soyType()},
+   * or other means) that the value does have the appropriate type but you prefer to interact with
+   * it as its unboxed representation.  If you simply want to 'coerce' the given value to a new type
+   * consider {@link #coerceToBoolean()} {@link #coerceToDouble()} or {@link #coerceToString()}
+   * which are designed for that use case.
+   */
+  SoyExpression unboxAs(Class<?> asType) {
+    checkArgument(
+        !SoyValue.class.isAssignableFrom(asType),
+        "Cannot use convert() to convert to a  SoyValue: %s, use .box() instead",
+        asType);
+    // no op conversion, always allow.
     if (asType.equals(clazz)) {
       return this;
     }
+    if (!isBoxed()) {
+      throw new IllegalStateException(
+          "Trying to unbox an unboxed value doesn't make sense, "
+              + "should you be using a type coercion? e.g. .coerceToBoolean()");
+    }
 
-    if (isKnownInt()) {
-      Expression intExpr = delegate;
-      if (isBoxed()) {
-        // unbox first
-        intExpr = MethodRef.SOY_VALUE_LONG_VALUE.invoke(intExpr);
-      }
-      if (asType.equals(double.class)) {
-        return forFloat(BytecodeUtils.numericConversion(intExpr, Type.DOUBLE_TYPE));
-      }
-      if (asType.equals(boolean.class)) {
-        return forBool(BytecodeUtils.compare(Opcodes.IFNE, intExpr, BytecodeUtils.constant(0L)));
-      }
-      if (asType.equals(String.class)) {
-        return forString(MethodRef.LONG_TO_STRING.invoke(intExpr));
-      }
-    }
-    if (isKnownFloat()) {
-      Expression floatExpr = delegate;
-      if (isBoxed()) {
-        // unbox first
-        floatExpr = MethodRef.SOY_VALUE_LONG_VALUE.invoke(floatExpr);
-      }
-      if (asType.equals(long.class)) {
-        throw new IllegalArgumentException("Cannot convert float to int");
-      }
-      if (asType.equals(boolean.class)) {
-        return forBool(MethodRef.RUNTIME_COERCE_DOUBLE_TO_BOOLEAN.invoke(floatExpr));
-      }
-      if (asType.equals(String.class)) {
-        return forString(MethodRef.DOUBLE_TO_STRING.invoke(floatExpr));
-      }
-    }
-    if (isKnownString()) {
-      Expression stringExpr = delegate;
-      if (isBoxed()) {
-        // unbox first
-        stringExpr = MethodRef.SOY_VALUE_STRING_VALUE.invoke(stringExpr);
-      }
-      if (asType.equals(double.class) || asType.equals(long.class)) {
-        throw new IllegalArgumentException("Cannot convert string to " + asType);
-      }
-      if (asType.equals(boolean.class)) {
-        return forBool(MethodRef.STRING_IS_EMPTY.invoke(stringExpr));
-      }
-    }
-    // TODO(lukes): implement specializations for lists/maps/records/objects
-
-    // SoyValue conversions, we first box ourselves and then call a SoyValue method
     if (asType.equals(long.class)) {
-      return forInt(MethodRef.SOY_VALUE_LONG_VALUE.invoke(box()));
+      return forInt(delegate.invoke(MethodRef.SOY_VALUE_LONG_VALUE));
     }
     if (asType.equals(double.class)) {
-      return forFloat(MethodRef.SOY_VALUE_FLOAT_VALUE.invoke(box()));
+      return forFloat(delegate.invoke(MethodRef.SOY_VALUE_FLOAT_VALUE));
     }
-    if (asType.equals(String.class)) {
-      // string coercion is performed via the toString method
-      return forString(MethodRef.TO_STRING.invoke(box()));
-    }
-    if (asType.equals(boolean.class)) {
-      return forBool(MethodRef.SOY_VALUE_COERCE_TO_BOOLEAN.invoke(box()));
+    if (delegate.isNonNullable()) {
+      if (asType.equals(String.class)) {
+        return forString(delegate.invoke(MethodRef.SOY_VALUE_STRING_VALUE));
+      }
+      if (asType.equals(List.class)) {
+        return unboxAsList();
+      }
+    } else {
+      // else it must be a List/Proto/String all of which must preserve null through the unboxing
+      // operation
+      final Label ifNull = new Label();
+      Expression nonNullDelegate =
+          new Expression(resultType(), features().plus(Feature.NON_NULLABLE)) {
+            @Override void doGen(CodeBuilder adapter) {
+              delegate.gen(adapter);
+              adapter.dup();
+              adapter.ifNull(ifNull);
+            }
+          };
+      final SoyExpression unboxAs = withSource(nonNullDelegate).unboxAs(asType);
+      return withSource(new Expression(resultType(), features()) {
+        @Override void doGen(CodeBuilder adapter) {
+          unboxAs.gen(adapter);
+          adapter.mark(ifNull);
+          adapter.checkCast(unboxAs.resultType());  // insert a cast to force type agreement
+        }
+      });
     }
     throw new UnsupportedOperationException("Can't unbox " + clazz + " as " + asType);
+  }
+
+  private SoyExpression unboxAsList() {
+    ListType asListType;
+    if (isKnownList()) {
+      asListType = (ListType) soyType;
+    } else {
+      Kind kind = soyType.getKind();
+      if (kind == Kind.UNKNOWN) {
+        asListType = ListType.of(UnknownType.getInstance());
+      } else {
+        // The type checker should have already rejected all of these
+        throw new UnsupportedOperationException("Cannot convert " + soyType + " to List");
+      }
+    }
+    return forList(
+        asListType,
+        delegate.cast(Type.getType(SoyList.class)).invoke(MethodRef.SOY_LIST_AS_JAVA_LIST));
   }
 
   /**
    * Returns a new {@link SoyExpression} with the same type but a new delegate expression.
    */
   SoyExpression withSource(Expression expr) {
-    return new SoyExpression(soyType, clazz, expr);
+    return new SoyExpression(soyType, clazz, expr, renderContext);
+  }
+
+  /**
+  * Applies a print directive to the soyValue, only useful for parameterless print directives such
+  * as those applied to {@link MsgNode msg nodes} and {@link CallNode call nodes} for autoescaping.
+  * For {@link PrintNode print nodes}, the directives may be parameterized by arbitrary soy
+  * expressions.
+  */
+  SoyExpression applyPrintDirective(Expression renderContext, String directive) {
+    return applyPrintDirective(renderContext, directive, MethodRef.IMMUTABLE_LIST_OF.invoke());
+  }
+
+  /**
+  * Applies a print directive to the soyValue.
+  */
+  SoyExpression applyPrintDirective(
+      Expression renderContext, String directive, Expression argsList) {
+    // Technically the type is either StringData or SanitizedContent depending on this type, but
+    // boxed.  Consider propagating the type more accurately, currently there isn't (afaict) much
+    // benefit (and strangely there is no common super type for SanitizedContent and String), this
+    // is probably because after escaping, the only thing you would ever do is convert to a string.
+    return SoyExpression.forSoyValue(UnknownType.getInstance(),
+        MethodRef.RUNTIME_APPLY_PRINT_DIRECTIVE.invoke(
+            renderContext
+                .invoke(MethodRef.RENDER_CONTEXT_GET_PRINT_DIRECTIVE, constant(directive)),
+                this.box(),
+            argsList));
+  }
+
+  @Override SoyExpression asCheap() {
+    return withSource(delegate.asCheap());
+  }
+
+  @Override SoyExpression asNonNullable() {
+    return withSource(delegate.asNonNullable());
+  }
+
+  @Override SoyExpression labelStart(Label label) {
+    return withSource(delegate.labelStart(label));
+  }
+
+  @Override SoyExpression labelEnd(Label label) {
+    return withSource(delegate.labelEnd(label));
   }
 
   /**
@@ -327,13 +543,26 @@ class SoyExpression extends Expression {
   private static final class DefaultBoxed extends SoyExpression {
     private final SoyExpression unboxed;
 
-    DefaultBoxed(SoyType soyType, SoyExpression unboxed, Expression delegate) {
-      super(soyType, soyType.javaType(), delegate);
+    DefaultBoxed(SoyType soyType, SoyExpression unboxed, Expression delegate,
+        Optional<Expression> expr) {
+      super(soyType, soyType.javaType(), delegate, expr);
       this.unboxed = unboxed;
     }
 
-    @Override final SoyExpression convert(Class<?> asType) {
-      return unboxed.convert(asType);
+    @Override final SoyExpression unboxAs(Class<?> asType) {
+      return unboxed.unboxAs(asType);
+    }
+
+    @Override SoyExpression coerceToBoolean() {
+      return unboxed.coerceToBoolean();
+    }
+
+    @Override SoyExpression coerceToString() {
+      return unboxed.coerceToString();
+    }
+
+    @Override SoyExpression coerceToDouble() {
+      return unboxed.coerceToDouble();
     }
 
     @Override final SoyExpression box() {

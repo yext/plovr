@@ -18,12 +18,13 @@ package com.google.template.soy.soytree;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.template.soy.ErrorReporterImpl;
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.ErrorReporterImpl;
 import com.google.template.soy.soytree.SoyNode.ConditionalBlockNode;
 import com.google.template.soy.soytree.SoyNode.ExprHolderNode;
 
@@ -78,9 +79,9 @@ public final class IfCondNode extends AbstractBlockCommandNode
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private IfCondNode(IfCondNode orig) {
-    super(orig);
-    this.exprUnion = (orig.exprUnion != null) ? orig.exprUnion.clone() : null;
+  private IfCondNode(IfCondNode orig, CopyState copyState) {
+    super(orig, copyState);
+    this.exprUnion = (orig.exprUnion != null) ? orig.exprUnion.copy(copyState) : null;
   }
 
 
@@ -125,8 +126,8 @@ public final class IfCondNode extends AbstractBlockCommandNode
   }
 
 
-  @Override public IfCondNode clone() {
-    return new IfCondNode(this);
+  @Override public IfCondNode copy(CopyState copyState) {
+    return new IfCondNode(this, copyState);
   }
 
   /**

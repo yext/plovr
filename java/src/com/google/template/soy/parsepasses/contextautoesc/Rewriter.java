@@ -20,8 +20,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallBasicNode;
 import com.google.template.soy.soytree.CallDelegateNode;
@@ -119,7 +118,6 @@ final class Rewriter {
     @Override protected void visitPrintNode(PrintNode printNode) {
       int id = printNode.getId();
       ImmutableList<EscapingMode> escapingModes = inferences.getEscapingModesForId(id);
-      TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
       for (EscapingMode escapingMode : escapingModes) {
         PrintDirectiveNode newPrintDirective = new PrintDirectiveNode.Builder(
             inferences.getIdGenerator().genId(),
@@ -144,7 +142,6 @@ final class Rewriter {
 
         printNode.addChild(newPrintDirectiveIndex, newPrintDirective);
       }
-      errorReporter.throwIfErrorsPresent();
     }
 
     /**
@@ -195,25 +192,21 @@ final class Rewriter {
           newCallNode = new CallBasicNode.Builder(callNode.getId(), callNode.getSourceLocation())
               .calleeName(derivedCalleeName)
               .sourceCalleeName(derivedCalleeName)
-              .isPassingData(callNode.isPassingData())
-              .isPassingAllData(callNode.isPassingAllData())
-              .dataExpr(callNode.getDataExpr())
+              .dataAttribute(callNode.dataAttribute())
               .userSuppliedPlaceholderName(callNode.getUserSuppliedPhName())
               .syntaxVersionBound(callNode.getSyntaxVersionBound())
               .escapingDirectiveNames(callNode.getEscapingDirectiveNames())
-              .buildAndThrowIfInvalid();
+              .build(errorReporter);
         } else {
           CallDelegateNode callNodeCast = (CallDelegateNode) callNode;
           newCallNode = new CallDelegateNode.Builder(callNode.getId(), callNode.getSourceLocation())
               .delCalleeName(derivedCalleeName)
               .delCalleeVariantExpr(callNodeCast.getDelCalleeVariantExpr())
               .allowEmptyDefault(callNodeCast.allowsEmptyDefault())
-              .isPassingData(callNode.isPassingData())
-              .isPassingAllData(callNode.isPassingAllData())
-              .dataExpr(callNode.getDataExpr())
+              .dataAttribute(callNode.dataAttribute())
               .userSuppliedPlaceholderName(callNode.getUserSuppliedPhName())
               .escapingDirectiveNames(callNode.getEscapingDirectiveNames())
-              .buildAndThrowIfInvalid();
+              .build(errorReporter);
         }
         if (!callNode.getCommandText().equals(newCallNode.getCommandText())) {
           moveChildrenTo(callNode, newCallNode);

@@ -19,6 +19,7 @@ package com.google.template.soy.pysrc.internal;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.ExprRootNode;
 import com.google.template.soy.pysrc.internal.GenPyExprsVisitor.GenPyExprsVisitorFactory;
 import com.google.template.soy.pysrc.internal.TranslateToPyExprVisitor.TranslateToPyExprVisitorFactory;
@@ -66,7 +67,9 @@ final class GenPyCallExprVisitor extends AbstractReturningSoyNodeVisitor<PyExpr>
       IsComputableAsPyExprVisitor isComputableAsPyExprVisitor,
       IsCalleeInFileVisitor isCalleeInFileVisitor,
       GenPyExprsVisitorFactory genPyExprsVisitorFactory,
-      TranslateToPyExprVisitorFactory translateToPyExprVisitorFactory) {
+      TranslateToPyExprVisitorFactory translateToPyExprVisitorFactory,
+      ErrorReporter errorReporter) {
+    super(errorReporter);
     this.soyPySrcDirectivesMap = soyPySrcDirectivesMap;
     this.isComputableAsPyExprVisitor = isComputableAsPyExprVisitor;
     this.isCalleeInFileVisitor = isCalleeInFileVisitor;
@@ -186,10 +189,10 @@ final class GenPyCallExprVisitor extends AbstractReturningSoyNodeVisitor<PyExpr>
 
     // Generate the expression for the original data to pass.
     String dataToPass;
-    if (callNode.isPassingAllData()) {
+    if (callNode.dataAttribute().isPassingAllData()) {
       dataToPass = "opt_data";
-    } else if (callNode.isPassingData()) {
-      dataToPass = translator.exec(callNode.getDataExpr()).getText();
+    } else if (callNode.dataAttribute().isPassingData()) {
+      dataToPass = translator.exec(callNode.dataAttribute().dataExpr()).getText();
     } else {
       dataToPass = "None";
     }
@@ -235,7 +238,7 @@ final class GenPyCallExprVisitor extends AbstractReturningSoyNodeVisitor<PyExpr>
     PyExpr additionalParamsExpr = PyExprUtils.convertMapToPyExpr(additionalParams);
 
     // Cases 2 and 3: Additional params with and without original data to pass.
-    if (callNode.isPassingData()) {
+    if (callNode.dataAttribute().isPassingData()) {
       return "runtime.merge_into_dict(" + additionalParamsExpr.getText() + ", " + dataToPass + ")";
     } else {
       return additionalParamsExpr.getText();

@@ -20,39 +20,168 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 
+import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
 
 /**
  * An expression has a {@link #resultType()} and can {@link #gen generate} code to evaluate the
  * expression.
- * 
+ *
  * <p>Expressions should be side effect free and also should not <em>consume</em> stack items.
  */
 abstract class Expression extends BytecodeProducer {
+  /** 
+   * Expression features track additional metadata for expressions.
+   * 
+   * <p>Features should be defined such that not setting a feature on an expression is a safe 
+   * default.  That way if they get accidentally dropped in a transformation we simply generate
+   * less efficient code, not incorrect code.
+   */
+  enum Feature {
+    /** The expression is guaranteed to not return null. */
+    NON_NULLABLE,
+    /** 
+     * The expression is 'cheap'.  As a rule of thumb, if it involves allocation, it is not cheap.
+     * 
+     * <p>Cheapness is useful when deciding if it would be reasonable to evaluate an expression more
+     * than once if the alternative is generating additional fields and save/restore code.
+     */
+    CHEAP;
+    // TODO(lukes): an idempotent feature would be useful some expressions are not safe to gen more
+    // than once.
+  }
 
-  /** Returns true if all referenced expressions are {@linkplain #isConstant() constant}. */
-  static boolean areAllConstant(Iterable<? extends Expression> args) {
+  /** An immutable wrapper of an EnumSet of {@link Feature}. */
+  static final class Features {
+    private static final Features EMPTY = new Features(EnumSet.noneOf(Feature.class));
+
+    static Features of() {
+      return EMPTY;
+    }
+
+    static Features of(Feature first, Feature ...rest) {
+      EnumSet<Feature> set = EnumSet.of(first);
+      Collections.addAll(set, rest);
+      return new Features(set);
+    }
+
+    private static Features forType(Type expressionType, Features features) {
+      switch (expressionType.getSort()) {
+        case Type.OBJECT:
+        case Type.ARRAY:
+          return features;
+        case Type.BOOLEAN:
+        case Type.BYTE:
+        case Type.CHAR:
+        case Type.DOUBLE:
+        case Type.INT:
+        case Type.SHORT:
+        case Type.LONG:
+        case Type.FLOAT:
+          // primitives are never null
+          return features.plus(Feature.NON_NULLABLE);
+        case Type.VOID:
+        case Type.METHOD:
+          throw new IllegalArgumentException("Invalid type: " + expressionType);
+        default:
+          throw new AssertionError("unexpected type " + expressionType);
+      }
+    }
+
+    private final EnumSet<Feature> set;
+
+    private Features(EnumSet<Feature> set) {
+      this.set = checkNotNull(set);
+    }
+
+    boolean has(Feature feature) {
+      return set.contains(feature);
+    }
+
+    Features plus(Feature feature) {
+      if (set.contains(feature)) {
+        return this;
+      }
+      EnumSet<Feature> newSet = copyFeatures();
+      newSet.add(feature);
+      return new Features(newSet);
+    }
+
+    Features minus(Feature feature) {
+      if (!set.contains(feature)) {
+        return this;
+      }
+      EnumSet<Feature> newSet = copyFeatures();
+      newSet.remove(feature);
+      return new Features(newSet);
+    }
+
+    private EnumSet<Feature> copyFeatures() {
+      // Can't use EnumSet.copyOf() because it throws on empty collections!
+      EnumSet<Feature> newSet = EnumSet.noneOf(Feature.class);
+      newSet.addAll(set);
+      return newSet;
+    }
+  }
+
+  /** Returns true if all referenced expressions are {@linkplain #isCheap() cheap}. */
+  static boolean areAllCheap(Iterable<? extends Expression> args) {
     for (Expression arg : args) {
-      if (!arg.isConstant()) {
+      if (!arg.isCheap()) {
         return false;
       }
     }
     return true;
   }
 
+  /** Returns true if all referenced expressions are {@linkplain #isCheap() cheap}. */
+  static boolean areAllCheap(Expression first, Expression ...rest) {
+    return areAllCheap(ImmutableList.<Expression>builder().add(first).add(rest).build());
+  }
+
   /**
    * Checks that the given expressions are compatible with the given types.
    */
   static void checkTypes(ImmutableList<Type> types, Expression ...exprs) {
-    checkArgument(exprs.length == types.size(), 
+    checkTypes(types, Arrays.asList(exprs));
+  }
+
+  /**
+   * Checks that the given expressions are compatible with the given types.
+   */
+  static void checkTypes(ImmutableList<Type> types, Iterable<? extends Expression> exprs) {
+    int size = Iterables.size(exprs);
+    checkArgument(size == types.size(), 
         "Supplied the wrong number of parameters. Expected %s, got %s",
         types.size(),
-        exprs.length);
-    for (int i = 0; i < exprs.length; i++) {
-      exprs[i].checkAssignableTo(types.get(i), "Parameter %s", i);
+        size);
+    int i = 0;
+    for (Expression expr : exprs) {
+      expr.checkAssignableTo(types.get(i), "Parameter %s", i);
+      i++;
     }
+  }
+
+  private final Features features;
+  private final Type resultType;
+
+  Expression(Type resultType) {
+    this(resultType, Features.of());
+  }
+
+  Expression(Type resultType, Feature first, Feature ...rest) {
+    this(resultType, Features.of(first, rest));
+  }
+
+  Expression(Type resultType, Features features) {
+    this.resultType = checkNotNull(resultType);
+    this.features = Features.forType(resultType, features);
   }
 
   /** 
@@ -61,17 +190,30 @@ abstract class Expression extends BytecodeProducer {
    * <p>The generated code satisfies the invariant that the top of the runtime stack will contain a
    * value with this {@link #resultType()} immediately after evaluation of the code. 
    */
-  @Override abstract void doGen(GeneratorAdapter adapter);
+  @Override abstract void doGen(CodeBuilder adapter);
   
   /** The type of the expression. */
-  abstract Type resultType();
+  final Type resultType() {
+    return resultType;
+  }
 
-  /** 
-   * A constant expression is one that does not reference any variables. It may contain an 
-   * arbitrarily large amount of logic.
+  /** Whether or not this expression is {@link Feature#CHEAP cheap}. */
+  boolean isCheap() {
+    return features.has(Feature.CHEAP);
+  }
+
+  /** Whether or not this expression is {@link Feature#NON_NULLABLE non nullable}. */
+  boolean isNonNullable() {
+    return features.has(Feature.NON_NULLABLE);
+  }
+
+  /**
+   * Returns all the feature bits. 
+   * Typically, users will want to invoke one of the convenience accessors {@link #isCheap()} or 
+   * {@link #isNonNullable()}. 
    */
-  boolean isConstant() {
-    return false;
+  Features features() {
+    return features;
   }
 
   /**
@@ -114,7 +256,7 @@ abstract class Expression extends BytecodeProducer {
    */
   Statement toStatement() {
     return new Statement() {
-      @Override void doGen(GeneratorAdapter adapter) {
+      @Override void doGen(CodeBuilder adapter) {
         Expression.this.gen(adapter);
         switch (resultType().getSize()) {
           case 0:
@@ -130,67 +272,116 @@ abstract class Expression extends BytecodeProducer {
     };
   }
   
-  Expression asConstant() {
-    if (isConstant()) {
+  /** Returns an equivalent expression where {@link #isCheap()} returns {@code true}. */
+  Expression asCheap() {
+    if (isCheap()) {
       return this;
     }
-    return new ConstantExpression(this);
+    return new Expression(resultType, features.plus(Feature.CHEAP)) {
+      @Override void doGen(CodeBuilder adapter) {
+        Expression.this.gen(adapter);
+      }
+    };
+  }
+
+  /** Returns an equivalent expression where {@link #isNonNullable()} returns {@code true}. */
+  Expression asNonNullable() {
+    if (isNonNullable()) {
+      return this;
+    }
+    return new Expression(resultType, features.plus(Feature.NON_NULLABLE)) {
+      @Override void doGen(CodeBuilder adapter) {
+        Expression.this.gen(adapter);
+      }
+    };
+  }
+
+  /**
+   * Returns an expression that performs a checked cast from the current type to the target type.
+   *
+   * @throws IllegalArgumentException if either type is not a reference type.
+   */
+  Expression cast(final Type target) {
+    checkArgument(target.getSort() == Type.OBJECT, "cast targets must be reference types.");
+    checkArgument(resultType().getSort() == Type.OBJECT, "you may only cast from reference types.");
+    if (target.equals(resultType())) {
+      return this;
+    }
+    return new Expression(target, features()) {
+      @Override void doGen(CodeBuilder adapter) {
+        Expression.this.gen(adapter);
+        adapter.checkCast(resultType());
+      }
+    };
+  }
+
+  /**
+   * Returns an expression that performs a checked cast from the current type to the target type.
+   *
+   * @throws IllegalArgumentException if either type is not a reference type.
+   */
+  Expression cast(Class<?> target) {
+    return cast(Type.getType(target));
+  }
+
+  /**
+   * A simple helper that calls through to {@link MethodRef#invoke(Expression...)}, but allows a
+   * more natural fluent call style.
+   */
+  Expression invoke(MethodRef method, Expression ...args) {
+    return method.invoke(ImmutableList.<Expression>builder().add(this).add(args).build());
+  }
+
+  /**
+   * A simple helper that calls through to {@link MethodRef#invokeVoid(Expression...)}, but allows a
+   * more natural fluent call style.
+   */
+  Statement invokeVoid(MethodRef method, Expression ...args) {
+    return method.invokeVoid(ImmutableList.<Expression>builder().add(this).add(args).build());
+  }
+
+  /**
+   * Returns a new expression identical to this one but with the given label applied at the start
+   * of the expression.
+   */
+  Expression labelStart(final Label label) {
+    return new Expression(resultType(), features) {
+      @Override void doGen(CodeBuilder adapter) {
+        adapter.mark(label);
+        Expression.this.gen(adapter);
+      }
+    };
+  }
+
+  /**
+   * Returns a new expression identical to this one but with the given label applied at the end
+   * of the expression.
+   */
+  Expression labelEnd(final Label label) {
+    return new Expression(resultType(), features) {
+      @Override
+      void doGen(CodeBuilder adapter) {
+        Expression.this.gen(adapter);
+        adapter.mark(label);
+      }
+    };
   }
 
   @Override public String toString() {
-    return name() + "<" + resultType() + ">:\n" + trace();
-  }
-
-  /**
-   * A simple name for the expression, used as part of {@link #toString()}.
-   */
-  private String name() {
-    if (isConstant()) {
-      return "ConstantExpression";
+    String name = getClass().getSimpleName();
+    if (name.isEmpty()) {
+      // provide a default for anonymous subclasses
+      name = "Expression";
     }
-    String simpleName = this.getClass().getSimpleName();
-    return simpleName.isEmpty() ? "Expression" : simpleName;
-  }
-
-  /**
-   * A simple {@link Expression} for when the type and constant status are known at construction 
-   * time.
-   */
-  abstract static class SimpleExpression extends Expression {
-    private final Type resultType;
-    private final boolean isConstant;
-
-    SimpleExpression(Type resultType, boolean isConstant) {
-      this.resultType = checkNotNull(resultType);
-      this.isConstant = isConstant;
+    name = name + "(" + resultType + "){";
+    boolean needsLeadingSpace = false;
+    if (features.has(Feature.CHEAP)) {
+      name += "cheap";
+      needsLeadingSpace = true;
     }
-
-    @Override final boolean isConstant() {
-      return isConstant;
+    if (features.has(Feature.NON_NULLABLE) && !BytecodeUtils.isPrimitive(resultType)) {
+      name += (needsLeadingSpace ? " " : "") + "non-null";
     }
-
-    @Override final Type resultType() {
-      return resultType;
-    }
-  }
-
-  private static final class ConstantExpression extends Expression {
-    private final Expression delegate;
-
-    ConstantExpression(Expression expression) {
-      this.delegate = expression;
-    }
-
-    @Override void doGen(GeneratorAdapter adapter) {
-      delegate.gen(adapter);
-    }
-
-    @Override Type resultType() {
-      return delegate.resultType();
-    }
-
-    @Override boolean isConstant() {
-      return true;
-    }
+    return name + "}<" + resultType() + ">:\n" + trace();
   }
 }

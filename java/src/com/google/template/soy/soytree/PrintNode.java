@@ -18,14 +18,15 @@ package com.google.template.soy.soytree;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.template.soy.ErrorReporterImpl;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.internal.BaseUtils;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprRootNode;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.ErrorReporterImpl;
 import com.google.template.soy.soytree.SoyNode.ExprHolderNode;
 import com.google.template.soy.soytree.SoyNode.MsgPlaceholderInitialNode;
 import com.google.template.soy.soytree.SoyNode.SplitLevelTopNode;
@@ -77,10 +78,10 @@ public final class PrintNode extends AbstractParentCommandNode<PrintDirectiveNod
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private PrintNode(PrintNode orig) {
-    super(orig);
+  private PrintNode(PrintNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.isImplicit = orig.isImplicit;
-    this.exprUnion = (orig.exprUnion != null) ? orig.exprUnion.clone() : null;
+    this.exprUnion = (orig.exprUnion != null) ? orig.exprUnion.copy(copyState) : null;
     this.userSuppliedPlaceholderName = orig.userSuppliedPlaceholderName;
   }
 
@@ -125,7 +126,7 @@ public final class PrintNode extends AbstractParentCommandNode<PrintDirectiveNod
     }
 
     return MsgSubstUnitBaseVarNameUtils.genNaiveBaseNameForExpr(
-        exprRoot.getChild(0), FALLBACK_BASE_PLACEHOLDER_NAME);
+        exprRoot.getRoot(), FALLBACK_BASE_PLACEHOLDER_NAME);
   }
 
 
@@ -168,8 +169,8 @@ public final class PrintNode extends AbstractParentCommandNode<PrintDirectiveNod
   }
 
 
-  @Override public PrintNode clone() {
-    return new PrintNode(this);
+  @Override public PrintNode copy(CopyState copyState) {
+    return new PrintNode(this, copyState);
   }
 
   /**

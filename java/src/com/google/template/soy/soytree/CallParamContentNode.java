@@ -17,12 +17,13 @@
 package com.google.template.soy.soytree;
 
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
 import com.google.template.soy.basetree.MixinParentNode;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.soytree.SoyNode.RenderUnitNode;
 
 import java.util.List;
@@ -74,9 +75,9 @@ public final class CallParamContentNode extends CallParamNode implements RenderU
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private CallParamContentNode(CallParamContentNode orig) {
-    super(orig);
-    this.parentMixin = new MixinParentNode<>(orig.parentMixin, this);
+  private CallParamContentNode(CallParamContentNode orig, CopyState copyState) {
+    super(orig, copyState);
+    this.parentMixin = new MixinParentNode<>(orig.parentMixin, this, copyState);
     this.key = orig.key;
     this.contentKind = orig.contentKind;
   }
@@ -176,15 +177,16 @@ public final class CallParamContentNode extends CallParamNode implements RenderU
     return parentMixin.toTreeString(indent);
   }
 
-  @Override public CallParamContentNode clone() {
-    return new CallParamContentNode(this);
+  @Override public CallParamContentNode copy(CopyState copyState) {
+    return new CallParamContentNode(this, copyState);
   }
 
   public static final class Builder extends CallParamNode.Builder {
 
-    public static final CallParamContentNode ERROR
-        = new Builder(-1, "error", SourceLocation.UNKNOWN)
-        .buildAndThrowIfInvalid(); // guaranteed to build
+    private static CallParamContentNode error() {
+      return new Builder(-1, "error", SourceLocation.UNKNOWN)
+          .build(ExplodingErrorReporter.get()); // guaranteed to build
+    }
 
     public Builder(int id, String commandText, SourceLocation sourceLocation) {
       super(id, commandText, sourceLocation);
@@ -198,19 +200,11 @@ public final class CallParamContentNode extends CallParamNode implements RenderU
       }
 
       if (errorReporter.errorsSince(checkpoint)) {
-        return ERROR;
+        return error();
       }
 
-      CallParamContentNode node = new CallParamContentNode(
+      return new CallParamContentNode(
           id, sourceLocation, parseResult.key, parseResult.contentKind, commandText);
-      return node;
-    }
-
-    private CallParamContentNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorManager = new TransitionalThrowingErrorReporter();
-      CallParamContentNode node = build(errorManager);
-      errorManager.throwIfErrorsPresent();
-      return node;
     }
   }
 

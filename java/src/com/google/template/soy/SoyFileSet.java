@@ -17,11 +17,13 @@
 package com.google.template.soy;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.CharSource;
@@ -31,12 +33,20 @@ import com.google.inject.Provider;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.util.Providers;
 import com.google.template.soy.base.SoySyntaxException;
-import com.google.template.soy.base.internal.ErrorPrettyPrinter;
 import com.google.template.soy.base.internal.SoyFileKind;
 import com.google.template.soy.base.internal.SoyFileSupplier;
 import com.google.template.soy.base.internal.VolatileSoyFileSupplier;
 import com.google.template.soy.basetree.SyntaxVersion;
 import com.google.template.soy.conformance.CheckConformance;
+import com.google.template.soy.conformance.ConformanceInput;
+import com.google.template.soy.error.ErrorPrettyPrinter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.jbcsrc.BytecodeCompiler;
+import com.google.template.soy.jbcsrc.api.CompiledTemplate;
+import com.google.template.soy.jbcsrc.api.CompiledTemplates;
+import com.google.template.soy.jbcsrc.api.SoySauce;
+import com.google.template.soy.jbcsrc.api.SoySauceImpl;
 import com.google.template.soy.jssrc.SoyJsSrcOptions;
 import com.google.template.soy.jssrc.internal.JsSrcMain;
 import com.google.template.soy.msgs.SoyMsgBundle;
@@ -47,9 +57,6 @@ import com.google.template.soy.msgs.restricted.SoyMsgBundleImpl;
 import com.google.template.soy.parseinfo.passes.GenerateParseInfoVisitor;
 import com.google.template.soy.parsepasses.ChangeCallsToPassAllDataVisitor;
 import com.google.template.soy.parsepasses.CheckFunctionCallsVisitor.CheckFunctionCallsVisitorFactory;
-import com.google.template.soy.parsepasses.HandleCssCommandVisitor;
-import com.google.template.soy.parsepasses.PerformAutoescapeVisitor;
-import com.google.template.soy.parsepasses.contextautoesc.CheckEscapingSanityVisitor;
 import com.google.template.soy.parsepasses.contextautoesc.ContentSecurityPolicyPass;
 import com.google.template.soy.parsepasses.contextautoesc.ContextualAutoescaper;
 import com.google.template.soy.parsepasses.contextautoesc.DerivedTemplateUtils;
@@ -58,20 +65,20 @@ import com.google.template.soy.pysrc.SoyPySrcOptions;
 import com.google.template.soy.pysrc.internal.PySrcMain;
 import com.google.template.soy.shared.SoyAstCache;
 import com.google.template.soy.shared.SoyGeneralOptions;
-import com.google.template.soy.shared.SoyGeneralOptions.CssHandlingScheme;
 import com.google.template.soy.shared.internal.MainEntryPointUtils;
-import com.google.template.soy.sharedpasses.AssertNoExternalCallsVisitor;
 import com.google.template.soy.sharedpasses.AssertStrictAutoescapingVisitor;
 import com.google.template.soy.sharedpasses.ClearSoyDocStringsVisitor;
+import com.google.template.soy.sharedpasses.FindIjParamsVisitor;
+import com.google.template.soy.sharedpasses.FindIjParamsVisitor.IjParamsInfo;
 import com.google.template.soy.sharedpasses.FindTransitiveDepTemplatesVisitor;
 import com.google.template.soy.sharedpasses.FindTransitiveDepTemplatesVisitor.TransitiveDepTemplatesInfo;
 import com.google.template.soy.sharedpasses.ResolvePackageRelativeCssNamesVisitor;
+import com.google.template.soy.sharedpasses.StrictDepsVisitor;
 import com.google.template.soy.sharedpasses.SubstituteGlobalsVisitor;
 import com.google.template.soy.sharedpasses.opti.SimplifyVisitor;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporterImpl;
 import com.google.template.soy.soytree.SoyFileNode;
 import com.google.template.soy.soytree.SoyFileSetNode;
+import com.google.template.soy.soytree.SoytreeUtils;
 import com.google.template.soy.soytree.TemplateDelegateNode;
 import com.google.template.soy.soytree.TemplateNode;
 import com.google.template.soy.soytree.TemplateRegistry;
@@ -439,18 +446,6 @@ public final class SoyFileSet {
 
 
     /**
-     * Sets the scheme for handling {@code css} commands.
-     *
-     * @param cssHandlingScheme The scheme for handling {@code css} commands.
-     * @return This builder.
-     */
-    public Builder setCssHandlingScheme(CssHandlingScheme cssHandlingScheme) {
-      getGeneralOptions().setCssHandlingScheme(cssHandlingScheme);
-      return this;
-    }
-
-
-    /**
      * Sets the map from compile-time global name to value.
      *
      * <p> The values can be any of the Soy primitive types: null, boolean, integer, float (Java
@@ -569,6 +564,9 @@ public final class SoyFileSet {
   /** Factory for creating an instance of BaseTofu. */
   private final BaseTofuFactory baseTofuFactory;
 
+  /** Factory for creating an instance of BaseTofu. */
+  private final SoySauceImpl.Factory soyTemplatesFactory;
+
   /** Provider for getting an instance of JsSrcMain. */
   private final Provider<JsSrcMain> jsSrcMainProvider;
 
@@ -577,9 +575,6 @@ public final class SoyFileSet {
 
   /** Factory for creating an instance of CheckFunctionCallsVisitor. */
   private final CheckFunctionCallsVisitorFactory checkFunctionCallsVisitorFactory;
-
-  /** The instance of PerformAutoescapeVisitor to use. */
-  private final PerformAutoescapeVisitor performAutoescapeVisitor;
 
   /** The instance of ContextualAutoescaper to use. */
   private final ContextualAutoescaper contextualAutoescaper;
@@ -614,7 +609,6 @@ public final class SoyFileSet {
    * @param pySrcMainProvider Provider for getting an instance of PySrcMain.
    * @param checkFunctionCallsVisitorFactory Factory for creating an instance of
    *     CheckFunctionCallsVisitor.
-   * @param performAutoescapeVisitor The instance of PerformAutoescapeVisitor to use.
    * @param contextualAutoescaper The instance of ContextualAutoescaper to use.
    * @param simplifyVisitor The instance of SimplifyVisitor to use.
    * @param typeRegistry The type registry to resolve parameter type names.
@@ -628,10 +622,10 @@ public final class SoyFileSet {
   @Inject
   SoyFileSet(
       BaseTofuFactory baseTofuFactory,
+      SoySauceImpl.Factory soyTemplatesFactory,
       Provider<JsSrcMain> jsSrcMainProvider,
       Provider<PySrcMain> pySrcMainProvider,
       CheckFunctionCallsVisitorFactory checkFunctionCallsVisitorFactory,
-      PerformAutoescapeVisitor performAutoescapeVisitor,
       ContextualAutoescaper contextualAutoescaper,
       SimplifyVisitor simplifyVisitor,
       SoyTypeRegistry typeRegistry,
@@ -643,12 +637,11 @@ public final class SoyFileSet {
 
     // Default value is optionally replaced using method injection.
     this.msgBundleHandlerProvider = DEFAULT_SOY_MSG_BUNDLE_HANDLER_PROVIDER;
-
+    this.soyTemplatesFactory = soyTemplatesFactory;
     this.baseTofuFactory = baseTofuFactory;
     this.jsSrcMainProvider = jsSrcMainProvider;
     this.pySrcMainProvider = pySrcMainProvider;
     this.checkFunctionCallsVisitorFactory = checkFunctionCallsVisitorFactory;
-    this.performAutoescapeVisitor = performAutoescapeVisitor;
     this.contextualAutoescaper = contextualAutoescaper;
     this.simplifyVisitor = simplifyVisitor;
 
@@ -683,6 +676,11 @@ public final class SoyFileSet {
     return generalOptions;
   }
 
+  /** TODO(user): workaround for {@link SoyJsSrcResource}. Remove. */
+  ErrorReporter getErrorReporter() {
+    return errorReporter;
+  }
+
   /**
    * Generates Java classes containing parse info (param names, template names, meta info). There
    * will be one Java class per Soy file.
@@ -692,12 +690,8 @@ public final class SoyFileSet {
    *     "namespace", or "generic".
    * @return A map from generated file name (of the form "<*>SoyInfo.java") to generated file
    *     content.
-   * @throws SoySyntaxException If a syntax error is found.
-   * TODO(brndn): Instead of throwing, should return a structure with a list of errors that callers
-   * can inspect.
    */
-  ImmutableMap<String, String> generateParseInfo(
-      String javaPackage, String javaClassNameSource) throws SoySyntaxException {
+  ParseInfo generateParseInfo(String javaPackage, String javaClassNameSource) {
 
     SyntaxVersion declaredSyntaxVersion =
         generalOptions.getDeclaredSyntaxVersion(SyntaxVersion.V2_0);
@@ -707,8 +701,19 @@ public final class SoyFileSet {
 
     // Do renaming of package-relative class names.
     new ResolvePackageRelativeCssNamesVisitor(errorReporter).exec(soyTree);
-    return new GenerateParseInfoVisitor(javaPackage, javaClassNameSource, errorReporter)
-        .exec(soyTree);
+    ImmutableMap<String, String> parseInfo =
+        new GenerateParseInfoVisitor(javaPackage, javaClassNameSource, errorReporter).exec(soyTree);
+    return new ParseInfo(result(), parseInfo);
+  }
+
+  static final class ParseInfo {
+    final CompilationResult result;
+    final ImmutableMap<String, String> generatedFiles;
+
+    ParseInfo(CompilationResult result, ImmutableMap<String, String> generatedFiles) {
+      this.result = result;
+      this.generatedFiles = generatedFiles;
+    }
   }
 
   /**
@@ -724,7 +729,7 @@ public final class SoyFileSet {
     SoyFileSetNode soyTree = new SoyFileSetParser(
         typeRegistry, cache, version, soyFileSuppliers, errorReporter)
         .parse();
-    return new TemplateRegistry(soyTree);
+    return new TemplateRegistry(soyTree, errorReporter);
   }
 
   /**
@@ -838,13 +843,11 @@ public final class SoyFileSet {
    * @param tofuOptions The compilation options for the Tofu backend.
    * @return The resulting {@code SoyTofu} object.
    * @throws SoySyntaxException If a syntax error is found.
-   * TODO(brndn): Instead of throwing, should return a structure with a list of errors that callers
-   * can inspect.
    */
   public SoyTofu compileToTofu(SoyTofuOptions tofuOptions) throws SoySyntaxException {
 
     // Defensive copy of options. (Doesn't matter now, but might forget later when it matters.)
-    tofuOptions = tofuOptions.clone();
+    tofuOptions = tofuOptions.copy();
 
     SyntaxVersion declaredSyntaxVersion =
         generalOptions.getDeclaredSyntaxVersion(SyntaxVersion.V2_0);
@@ -871,9 +874,87 @@ public final class SoyFileSet {
     // Clear the SoyDoc strings because they use unnecessary memory.
     new ClearSoyDocStringsVisitor(errorReporter).exec(soyTree);
 
+    ((ErrorReporterImpl) errorReporter).throwIfErrorsPresent();
+
     return baseTofuFactory.create(soyTree, tofuOptions.useCaching(), errorReporter);
   }
 
+  /**
+   * This is an <em>extremely experimental API</em> and subject to change.  Not all features of soy
+   * are implemented in this new backend and the features that are implemented are not necessarily
+   * correct!
+   *
+   * <p>See com/google/template/soy/jbcsrc/README.md for background on this new backend.
+   *
+   * <p>Compiles this Soy file set into a set of java classes implementing the
+   * {@link CompiledTemplate} interface.
+   *
+   * @return A set of compiled templates
+   * @throws SoySyntaxException If a syntax error is found.
+   */
+  public SoySauce compileTemplates() throws SoySyntaxException {
+    // allow null (the default) or false
+    if (generalOptions.allowExternalCalls() == Boolean.TRUE) {
+      throw new UnsupportedOperationException(
+          "jbcsrc doesn't support the allowExternalCalls option");
+    }
+    SyntaxVersion declaredSyntaxVersion =
+        generalOptions.getDeclaredSyntaxVersion(SyntaxVersion.V2_0);
+    Checkpoint checkpoint = errorReporter.checkpoint();
+    SoyFileSetNode soyTree = new SoyFileSetParser(
+        typeRegistry, cache, declaredSyntaxVersion, soyFileSuppliers, errorReporter)
+        .parse();
+    if (errorReporter.errorsSince(checkpoint)) {
+      ((ErrorReporterImpl) errorReporter).throwIfErrorsPresent();
+    }
+
+    checkpoint = errorReporter.checkpoint();
+    runMiddleendPasses(soyTree, declaredSyntaxVersion);
+    new StrictDepsVisitor(errorReporter).exec(soyTree);
+    if (errorReporter.errorsSince(checkpoint)) {
+      ((ErrorReporterImpl) errorReporter).throwIfErrorsPresent();
+    }
+
+    checkpoint = errorReporter.checkpoint();
+    // Note: Globals should have been substituted already. The pass below is just a check.
+    new SubstituteGlobalsVisitor(
+        generalOptions.getCompileTimeGlobals(),
+        typeRegistry,
+        true /* shouldAssertNoUnboundGlobals */,
+        errorReporter)
+        .exec(soyTree);
+    if (errorReporter.errorsSince(checkpoint)) {
+      ((ErrorReporterImpl) errorReporter).throwIfErrorsPresent();
+    }
+
+    checkpoint = errorReporter.checkpoint();
+    TemplateRegistry registry = new TemplateRegistry(soyTree, errorReporter);
+    Optional<CompiledTemplates> templates = BytecodeCompiler.compile(registry, errorReporter);
+    if (errorReporter.errorsSince(checkpoint)) {
+      ((ErrorReporterImpl) errorReporter).throwIfErrorsPresent();
+    }
+    CompiledTemplates compiledTemplates = templates.get();
+    return soyTemplatesFactory.create(
+        compiledTemplates,
+        registry,
+        extractMsgs(),
+        getTransitiveIjs(soyTree, registry));
+  }
+
+  private ImmutableSetMultimap<String, String> getTransitiveIjs(
+      SoyFileSetNode soyTree, TemplateRegistry registry) {
+    ImmutableMap<TemplateNode, IjParamsInfo> templateToIjParamsInfoMap =
+        new FindIjParamsVisitor(registry, errorReporter)
+            .execOnAllTemplates(soyTree);
+    ImmutableSetMultimap.Builder<String, String> templateToTranstivieIjParams =
+        ImmutableSetMultimap.builder();
+    for (Map.Entry<TemplateNode, IjParamsInfo> entry : templateToIjParamsInfoMap.entrySet()) {
+      templateToTranstivieIjParams.putAll(
+          entry.getKey().getTemplateName(),
+          entry.getValue().ijParamSet);
+    }
+    return templateToTranstivieIjParams.build();
+  }
 
   /**
    * Compiles this Soy file set into a Java object (type {@code SoyTofu}) capable of rendering the
@@ -923,7 +1004,6 @@ public final class SoyFileSet {
     return jsSrcMainProvider.get().genJsSrc(soyTree, jsSrcOptions, msgBundle);
   }
 
-
   /**
    * Compiles this Soy file set into JS source code files and writes these JS files to disk.
    *
@@ -950,11 +1030,19 @@ public final class SoyFileSet {
     SyntaxVersion declaredSyntaxVersion =
         generalOptions.getDeclaredSyntaxVersion(SyntaxVersion.V2_0);
 
+    Checkpoint checkpoint = errorReporter.checkpoint();
     SoyFileSetNode soyTree = new SoyFileSetParser(
         typeRegistry, cache, declaredSyntaxVersion, soyFileSuppliers, errorReporter)
         .parse();
+    if (errorReporter.errorsSince(checkpoint)) {
+      return failure();
+    }
 
+    checkpoint = errorReporter.checkpoint();
     runMiddleendPasses(soyTree, declaredSyntaxVersion);
+    if (errorReporter.errorsSince(checkpoint)) {
+      return failure();
+    }
 
     if (locales.isEmpty()) {
       // Not generating localized JS.
@@ -965,7 +1053,7 @@ public final class SoyFileSet {
       // Generating localized JS.
       for (String locale : locales) {
 
-        SoyFileSetNode soyTreeClone = soyTree.clone();
+        SoyFileSetNode soyTreeClone = SoytreeUtils.cloneNode(soyTree);
 
         String msgFilePath = MainEntryPointUtils.buildFilePath(
             messageFilePathFormat, locale, null, inputFilePathPrefix);
@@ -985,7 +1073,7 @@ public final class SoyFileSet {
             soyTreeClone, jsSrcOptions, locale, msgBundle, outputPathFormat, inputFilePathPrefix);
       }
     }
-    return compilationResult();
+    return result();
   }
 
   /**
@@ -1007,27 +1095,42 @@ public final class SoyFileSet {
     SyntaxVersion declaredSyntaxVersion =
         generalOptions.getDeclaredSyntaxVersion(SyntaxVersion.V2_2);
 
+    Checkpoint checkpoint = errorReporter.checkpoint();
     SoyFileSetNode soyTree = new SoyFileSetParser(
         typeRegistry, cache, declaredSyntaxVersion, soyFileSuppliers, errorReporter)
         .parse();
+    if (errorReporter.errorsSince(checkpoint)) {
+      return failure();
+    }
 
+    checkpoint = errorReporter.checkpoint();
     runMiddleendPasses(soyTree, declaredSyntaxVersion);
+    if (errorReporter.errorsSince(checkpoint)) {
+      return failure();
+    }
 
     pySrcMainProvider.get().genPyFiles(
         soyTree, pySrcOptions, outputPathFormat, inputFilePathPrefix);
 
-    return compilationResult();
+    return result();
   }
 
-  private CompilationResult compilationResult() {
-    ImmutableCollection<? extends SoySyntaxException> errors =
-        errorReporter instanceof ErrorReporterImpl
-            ? ((ErrorReporterImpl) errorReporter).getErrors()
-            : ImmutableList.<SoySyntaxException>of();
+  private CompilationResult result() {
+    ErrorReporterImpl impl = (ErrorReporterImpl) errorReporter;
+    return new CompilationResult(impl.getErrors(), new ErrorPrettyPrinter(soyFileSuppliers));
+  }
+
+  private CompilationResult failure() {
+    ImmutableCollection<? extends SoySyntaxException> errors
+        = ((ErrorReporterImpl) errorReporter).getErrors();
+    Preconditions.checkState(!errors.isEmpty());
     return new CompilationResult(errors, new ErrorPrettyPrinter(soyFileSuppliers));
   }
 
-
+  // TODO(gboyer): There are several fields on this class that end up saving around some state, and
+  // thus are not safe to be used by multiple threads at once. Here, we add synchronized as a
+  // stop-gap. However, given that most users of SoyFileSet use it once and throw it away, that
+  // might be a better precondition.
   /**
    * Runs middleend passes on the given Soy tree.
    *
@@ -1037,8 +1140,11 @@ public final class SoyFileSet {
    * @throws SoyAutoescapeException If there is a problem determining the context for an
    *     {@code autoescape="contextual"} template or one of its callers.
    */
-  private void runMiddleendPasses(SoyFileSetNode soyTree, SyntaxVersion declaredSyntaxVersion)
+  private synchronized void runMiddleendPasses(
+      SoyFileSetNode soyTree, SyntaxVersion declaredSyntaxVersion)
       throws SoySyntaxException {
+
+    Checkpoint checkpoint = errorReporter.checkpoint();
 
     // Check that all function calls have a SoyFunction definition and have the correct arity.
     // This really belongs in SoyFileSetParser, but moving it there would cause SoyFileSetParser to
@@ -1050,7 +1156,7 @@ public final class SoyFileSet {
 
     // If disallowing external calls, perform the check.
     if (generalOptions.allowExternalCalls() == Boolean.FALSE) {
-      (new AssertNoExternalCallsVisitor(errorReporter)).exec(soyTree);
+      (new StrictDepsVisitor(errorReporter)).exec(soyTree);
     }
 
     // If requiring strict autoescaping, check and enforce it.
@@ -1058,16 +1164,7 @@ public final class SoyFileSet {
       (new AssertStrictAutoescapingVisitor(errorReporter)).exec(soyTree);
     }
 
-    if (checkConformance != null) {
-      ImmutableList<SoySyntaxException> violations = checkConformance.getViolations(soyTree);
-      if (!violations.isEmpty()) {
-        // TODO(brndn): merge all violations into one, instead of just showing the first.
-        throw violations.get(0);
-      }
-    }
-
     // Handle CSS commands (if not backend-specific) and substitute compile-time globals.
-    new HandleCssCommandVisitor(generalOptions.getCssHandlingScheme(), errorReporter).exec(soyTree);
     if (generalOptions.getCompileTimeGlobals() != null || typeRegistry != null) {
       new SubstituteGlobalsVisitor(
           generalOptions.getCompileTimeGlobals(),
@@ -1077,11 +1174,18 @@ public final class SoyFileSet {
           .exec(soyTree);
     }
 
-    // Run contextual escaping after CSS has been done, but before the autoescape visitor adds
-    // |escapeHtml directives.  The contextual directive filterHtmlIdent serves the same purpose
-    // in some places, but with runtime guarantees.
+    // Run contextual escaping after CSS and substitutions have been done.
     doContextualEscaping(soyTree);
-    performAutoescapeVisitor.exec(soyTree);
+    if (errorReporter.errorsSince(checkpoint)) {
+      // Further passes that rely on sliced raw text nodes, such as conformance and CSP, can't
+      // proceed if contextual escaping failed.
+      return;
+    }
+
+    if (checkConformance != null) {
+      checkConformance.check(ConformanceInput.create(
+          soyTree, contextualAutoescaper.getSlicedRawTextNodes()));
+    }
 
     // Add print directives that mark inline-scripts as safe to run.
     if (generalOptions.supportContentSecurityPolicy()) {
@@ -1097,7 +1201,6 @@ public final class SoyFileSet {
 
   private void doContextualEscaping(SoyFileSetNode soyTree)
       throws SoySyntaxException {
-    new CheckEscapingSanityVisitor(errorReporter).exec(soyTree);
     List<TemplateNode> extraTemplates = contextualAutoescaper.rewrite(soyTree);
     // TODO: Run the redundant template remover here and rename after CL 16642341 is in.
     if (!extraTemplates.isEmpty()) {

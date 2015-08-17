@@ -34,7 +34,6 @@ public enum SyntaxVersion {
       //   + Some prevalent forms of incorrect param declarations in template SoyDoc.
       //   + Template name that isn't a dot followed by an identifier (i.e. relative to namespace).
       //   + The 'override' attribute in a 'template tag.
-      //   + The 'function' attribute in a 'call' tag.
       //   + Expressions that cannot be parsed as a Soy V2 expression.
       // Behavior changes if V1.0- is declared (not inferred):
       //   + HTML comments in Soy raw text are removed.
@@ -45,7 +44,6 @@ public enum SyntaxVersion {
   V2_1,
       // V2.1 disallows some items that really should have been disallowed in V2.0.
       // Checks:
-      //   + Disallows old directive names (|noescape, |escape, |insertwordbreaks).
       //   + Disallows some forms of incorrect 'css' tags that weren't checked previously.
 
   V2_2,
@@ -53,8 +51,6 @@ public enum SyntaxVersion {
       // Behavior changes if V2.2+ is declared (not inferred):
       //   + Default value of 'delcall' tag attribute 'allowemptydefault' changes to false.
       // Checks:
-      //   + Disallows 'template' tag attribute 'name'.
-      //   + Disallows 'call' tag attribute 'name'.
       //   + Disallows function hasData().
       //   + Disallows dot access of list items.
 

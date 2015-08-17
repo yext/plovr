@@ -27,6 +27,7 @@ import com.google.template.soy.data.SoyRecord;
 import com.google.template.soy.data.SoyValueHelper;
 import com.google.template.soy.data.UnsafeSanitizedContentOrdainer;
 import com.google.template.soy.data.internalutils.NodeContentKinds;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.internal.base.Pair;
 import com.google.template.soy.msgs.SoyMsgBundle;
 import com.google.template.soy.msgs.internal.InsertMsgsVisitor;
@@ -35,6 +36,7 @@ import com.google.template.soy.shared.SoyCssRenamingMap;
 import com.google.template.soy.shared.SoyIdRenamingMap;
 import com.google.template.soy.shared.internal.ApiCallScopeUtils;
 import com.google.template.soy.shared.internal.GuiceSimpleScope;
+import com.google.template.soy.shared.internal.GuiceSimpleScope.WithScope;
 import com.google.template.soy.shared.restricted.ApiCallScopeBindingAnnotations.ApiCall;
 import com.google.template.soy.sharedpasses.FindIjParamsVisitor;
 import com.google.template.soy.sharedpasses.FindIjParamsVisitor.IjParamsInfo;
@@ -42,8 +44,8 @@ import com.google.template.soy.sharedpasses.RenameCssVisitor;
 import com.google.template.soy.sharedpasses.opti.SimplifyVisitor;
 import com.google.template.soy.sharedpasses.render.RenderException;
 import com.google.template.soy.sharedpasses.render.RenderVisitor;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.SoyFileSetNode;
+import com.google.template.soy.soytree.SoytreeUtils;
 import com.google.template.soy.soytree.TemplateNode;
 import com.google.template.soy.soytree.TemplateRegistry;
 import com.google.template.soy.soytree.Visibility;
@@ -148,7 +150,7 @@ public class BaseTofu implements SoyTofu {
     } else {
       cachedTemplateRegistries = null;
     }
-    SoyFileSetNode soyTreeForNoCaching = soyTree.clone();
+    SoyFileSetNode soyTreeForNoCaching = SoytreeUtils.cloneNode(soyTree);
     templateRegistryForNoCaching = buildTemplateRegistry(soyTreeForNoCaching);
     templateToIjParamsInfoMap =
         new FindIjParamsVisitor(templateRegistryForNoCaching, errorReporter)
@@ -182,13 +184,9 @@ public class BaseTofu implements SoyTofu {
       throw new SoyTofuException("Cannot addToCache() when isCaching is false.");
     }
 
-    apiCallScope.enter();
-    try {
-      ApiCallScopeUtils.seedSharedParams(
-          apiCallScope, msgBundle, 0 /*use msgBundle locale's direction, ltr if null*/);
+    try (WithScope withScope = apiCallScope.enter()) {
+      ApiCallScopeUtils.seedSharedParams(apiCallScope, msgBundle);
       getCachedTemplateRegistry(Pair.of(msgBundle, cssRenamingMap), true);
-    } finally {
-      apiCallScope.exit();
     }
   }
 
@@ -233,7 +231,7 @@ public class BaseTofu implements SoyTofu {
    * @return The newly built template registry.
    */
   private TemplateRegistry buildTemplateRegistry(SoyFileSetNode soyTree) {
-    return new TemplateRegistry(soyTree);
+    return new TemplateRegistry(soyTree, errorReporter);
   }
 
 
@@ -268,7 +266,7 @@ public class BaseTofu implements SoyTofu {
       if (!doAddToCache) {
         return null;
       }
-      SoyFileSetNode soyTreeClone = soyTree.clone();
+      SoyFileSetNode soyTreeClone = SoytreeUtils.cloneNode(soyTree);
       new InsertMsgsVisitor(key.first, true /* dontErrorOnPlrselMsgs */ , errorReporter)
           .exec(soyTreeClone);
       new RenameCssVisitor(key.second, errorReporter)
@@ -307,12 +305,9 @@ public class BaseTofu implements SoyTofu {
       activeDelPackageNames = Collections.emptySet();
     }
 
-    apiCallScope.enter();
-
-    try {
+    try (WithScope withScope = apiCallScope.enter()) {
       // Seed the scoped parameters.
-      ApiCallScopeUtils.seedSharedParams(
-          apiCallScope, msgBundle, 0 /*use msgBundle locale's direction, ltr if null*/);
+      ApiCallScopeUtils.seedSharedParams(apiCallScope, msgBundle);
 
       // Do the rendering.
       TemplateRegistry cachedTemplateRegistry = isCaching ?
@@ -329,9 +324,6 @@ public class BaseTofu implements SoyTofu {
             templateRegistryForNoCaching, outputBuf, templateName, data, ijData,
             activeDelPackageNames, msgBundle, idRenamingMap, cssRenamingMap);
       }
-
-    } finally {
-      apiCallScope.exit();
     }
   }
 

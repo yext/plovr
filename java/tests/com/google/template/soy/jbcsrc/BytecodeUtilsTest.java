@@ -24,13 +24,11 @@ import static com.google.template.soy.jbcsrc.BytecodeUtils.logicalOr;
 import static com.google.template.soy.jbcsrc.ExpressionTester.assertThatExpression;
 
 import com.google.common.collect.ImmutableList;
-import com.google.template.soy.jbcsrc.Expression.SimpleExpression;
 
 import junit.framework.TestCase;
 
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.GeneratorAdapter;
 
 import java.util.List;
 
@@ -159,7 +157,7 @@ public class BytecodeUtilsTest extends TestCase {
   // Use an expression that only ever throws for branches that are supposed to be skipped.
   public void testShortCircuitingLogicalOperators_shortCircuits() {
     assertThatExpression(throwingBoolExpression())
-        .throwsExceptionOfType(IllegalStateException.class);
+        .throwsException(IllegalStateException.class);
 
     assertThatExpression(logicalOr(ImmutableList.of(constant(true), throwingBoolExpression())))
         .evaluatesTo(true);
@@ -168,8 +166,8 @@ public class BytecodeUtilsTest extends TestCase {
   }
 
   private static Expression throwingBoolExpression() {
-    return new SimpleExpression(Type.BOOLEAN_TYPE, false) {
-       @Override void doGen(GeneratorAdapter adapter) {
+    return new Expression(Type.BOOLEAN_TYPE) {
+       @Override void doGen(CodeBuilder adapter) {
          adapter.throwException(Type.getType(IllegalStateException.class),
              "shouldn't have called me");
        }

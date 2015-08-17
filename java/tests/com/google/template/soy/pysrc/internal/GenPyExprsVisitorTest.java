@@ -35,6 +35,14 @@ public final class GenPyExprsVisitorTest extends TestCase {
         new PyExpr("'I\\'m feeling lucky!'", Integer.MAX_VALUE));
   }
 
+  public void testCss() {
+    assertThatSoyExpr("{css primary}").compilesTo(
+        new PyExpr("runtime.get_css_name('primary')", Integer.MAX_VALUE));
+
+    assertThatSoyExpr("{css $foo, bar}").compilesTo(
+        new PyExpr("runtime.get_css_name(opt_data.get('foo'), 'bar')", Integer.MAX_VALUE));
+  }
+
   public void testIf() {
     String soyNodeCode =
         "{if $boo}\n"
@@ -97,7 +105,8 @@ public final class GenPyExprsVisitorTest extends TestCase {
         + "translator_impl.prepare_literal("
           + "###, "
           + "'archive')) "
-      + "if is_msg_available(###) else translator_impl.render_literal("
+      + "if translator_impl.is_msg_available(###) or not translator_impl.is_msg_available(###) "
+      + "else translator_impl.render_literal("
         + "translator_impl.prepare_literal(###, 'ARCHIVE'))";
 
     assertThatSoyExpr(soyCode).compilesTo(new PyExpr(expectedPyCode,
@@ -434,14 +443,17 @@ public final class GenPyExprsVisitorTest extends TestCase {
             + "}', "
             + "('PEOPLE_0_GENDER', 'PEOPLE_1_GENDER', 'NUM', 'NAME_1', 'NAME_2')), "
           + "{"
-            + "'PEOPLE_0_GENDER': None if opt_data.get('people')[0] is None "
-              + "else opt_data.get('people')[0].get('gender'), "
-            + "'PEOPLE_1_GENDER': None if opt_data.get('people')[1] is None "
-              + "else opt_data.get('people')[1].get('gender'), "
+            + "'PEOPLE_0_GENDER': None "
+              + "if runtime.key_safe_data_access(opt_data.get('people'), 0) is None "
+              + "else runtime.key_safe_data_access(opt_data.get('people'), 0).get('gender'), "
+            + "'PEOPLE_1_GENDER': None "
+              + "if runtime.key_safe_data_access(opt_data.get('people'), 1) is None "
+              + "else runtime.key_safe_data_access(opt_data.get('people'), 1).get('gender'), "
             + "'NUM': len(opt_data.get('people')), "
-            + "'NAME_1': str(opt_data.get('people')[0].get('name')), "
-            + "'NAME_2': str(None if opt_data.get('people')[1] is None "
-              + "else opt_data.get('people')[1].get('name'))"
+            + "'NAME_1': str(runtime.key_safe_data_access(opt_data.get('people'), 0).get('name')), "
+            + "'NAME_2': str(None "
+              + "if runtime.key_safe_data_access(opt_data.get('people'), 1) is None "
+              + "else runtime.key_safe_data_access(opt_data.get('people'), 1).get('name'))"
           + "}"
         + ")";
 

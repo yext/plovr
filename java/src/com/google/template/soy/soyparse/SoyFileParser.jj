@@ -47,8 +47,9 @@ import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.IdGenerator;
 import com.google.template.soy.base.internal.SoyFileKind;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporterImpl;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.ErrorReporterImpl;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.soytree.SoyFileNode;
 import com.google.template.soy.soytree.SoyNode.StandaloneNode;
 import com.google.template.soy.soytree.TemplateBasicNodeBuilder;
@@ -122,12 +123,6 @@ import java.util.regex.*;
  *      {msg desc=""}
  *        {$boo} has a friend named {$goo.firstName}.
  *      {/msg}
- *    {/template}
- *    /**
- *     * Old style.
- *     *&#47;
- *    {template name="foo"}
- *      ...
  *    {/template}
  *
  * 6. Misc:
@@ -652,6 +647,7 @@ private SoyFileNode SoyFile() :
         nodeIdGen.genId(),
         filePath,
         soyFileKind,
+        errorReporter,
         delpackageCmdText,
         namespaceCmdText,
         aliasCmdTexts);
@@ -692,8 +688,10 @@ private TemplateNode Template(SoyFileHeaderInfo soyFileHeaderInfo) :
         templateContent.endColumn);
 
     TemplateNodeBuilder templateNodeBuilder = isBasicTemplate
-        ? new TemplateBasicNodeBuilder(soyFileHeaderInfo, srcLocation, typeRegistry)
-        : new TemplateDelegateNodeBuilder(soyFileHeaderInfo, srcLocation, typeRegistry);
+        ? new TemplateBasicNodeBuilder(
+            soyFileHeaderInfo, srcLocation, errorReporter, typeRegistry)
+        : new TemplateDelegateNodeBuilder(
+            soyFileHeaderInfo, srcLocation, errorReporter, typeRegistry);
 
     templateNodeBuilder.setId(nodeIdGen.genId());
 

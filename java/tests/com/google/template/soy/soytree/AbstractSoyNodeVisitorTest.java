@@ -19,13 +19,12 @@ package com.google.template.soy.soytree;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.base.internal.SoyFileKind;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.soytree.SoyNode.ParentSoyNode;
 import com.google.template.soy.soytree.TemplateNode.SoyFileHeaderInfo;
 
 import junit.framework.TestCase;
-
 
 /**
  * Unit tests for AbstractSoyNodeVisitor.
@@ -39,14 +38,24 @@ public final class AbstractSoyNodeVisitorTest extends TestCase {
 
     SoyFileSetNode soyTree = new SoyFileSetNode(0, null);
 
-    SoyFileNode soyFile = new SoyFileNode(0, "", SoyFileKind.SRC, null, "boo", null);
+    SoyFileNode soyFile = new SoyFileNode(
+        0,
+        "",
+        SoyFileKind.SRC,
+        FAIL,
+        null /* delpackageCmdText */,
+        "boo" /* namespaceCmdText */,
+        null /* aliasCmdTexts */);
     soyTree.addChild(soyFile);
 
     SoyFileHeaderInfo testSoyFileHeaderInfo = new SoyFileHeaderInfo("testNs");
 
     TemplateNode template1 =
-        new TemplateBasicNodeBuilder(testSoyFileHeaderInfo, SourceLocation.UNKNOWN)
-            .setId(0).setCmdText("name=\".foo\"").setSoyDoc("/** @param goo */").build();
+        new TemplateBasicNodeBuilder(testSoyFileHeaderInfo, SourceLocation.UNKNOWN, FAIL)
+            .setId(0)
+            .setCmdText(".foo")
+            .setSoyDoc("/** @param goo */")
+            .build();
     soyFile.addChild(template1);
     template1.addChild(
         new PrintNode.Builder(0, true /* isImplicit */, SourceLocation.UNKNOWN)
@@ -58,8 +67,11 @@ public final class AbstractSoyNodeVisitorTest extends TestCase {
             .build(FAIL));
 
     TemplateNode template2 =
-        new TemplateBasicNodeBuilder(testSoyFileHeaderInfo, SourceLocation.UNKNOWN)
-            .setId(0).setCmdText("name=\".moo\"").setSoyDoc(null).build();
+        new TemplateBasicNodeBuilder(testSoyFileHeaderInfo, SourceLocation.UNKNOWN, FAIL)
+            .setId(0)
+            .setCmdText(".moo")
+            .setSoyDoc(null)
+            .build();
     soyFile.addChild(template2);
     template2.addChild(
         new PrintNode.Builder(0, true /* isImplicit */, SourceLocation.UNKNOWN)

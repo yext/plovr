@@ -16,8 +16,11 @@
 
 package com.google.template.soy.exprtree;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.template.soy.basetree.CopyState;
 
 import java.util.List;
 
@@ -34,7 +37,7 @@ public final class ExprRootNode extends AbstractParentExprNode {
   public static List<ExprNode> unwrap(Iterable<ExprRootNode> exprs) {
     ImmutableList.Builder<ExprNode> builder = ImmutableList.builder();
     for (ExprRootNode expr : exprs) {
-      builder.add(expr.getChild(0));
+      builder.add(expr.getRoot());
     }
     return builder.build();
   }
@@ -53,6 +56,7 @@ public final class ExprRootNode extends AbstractParentExprNode {
    */
   public ExprRootNode(ExprNode child) {
     super(child.getSourceLocation());
+    checkArgument(!(child instanceof ExprRootNode));
     this.addChild(child);
   }
 
@@ -61,8 +65,8 @@ public final class ExprRootNode extends AbstractParentExprNode {
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private ExprRootNode(ExprRootNode orig) {
-    super(orig);
+  private ExprRootNode(ExprRootNode orig, CopyState copyState) {
+    super(orig, copyState);
   }
 
 
@@ -70,6 +74,9 @@ public final class ExprRootNode extends AbstractParentExprNode {
     return Kind.EXPR_ROOT_NODE;
   }
 
+  public ExprNode getRoot() {
+    return getChild(0);
+  }
 
   @Override public ExprNode getChild(int index) {
     Preconditions.checkArgument(index == 0);
@@ -78,12 +85,12 @@ public final class ExprRootNode extends AbstractParentExprNode {
 
 
   @Override public String toSourceString() {
-    return getChild(0).toSourceString();
+    return getRoot().toSourceString();
   }
 
 
-  @Override public ExprRootNode clone() {
-    return new ExprRootNode(this);
+  @Override public ExprRootNode copy(CopyState copyState) {
+    return new ExprRootNode(this, copyState);
   }
 
 }

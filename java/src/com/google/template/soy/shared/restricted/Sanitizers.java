@@ -279,7 +279,14 @@ public final class Sanitizers {
     } else if (value instanceof BooleanData) {
       return " " + value.booleanValue() + " ";
     } else if (isSanitizedContentOfKind(value, SanitizedContent.ContentKind.JS)) {
-      return value.coerceToString();
+      String jsCode = value.coerceToString();
+      // This value may not be embeddable if it contains the substring "</script".
+      // TODO(user): Fixup.  We need to be careful because mucking with '<' can
+      // break code like
+      //    while (i</foo/.exec(str).length)
+      // and mucking with / can break
+      //    return untrustedHTML.replace(/</g, '&lt;');
+      return jsCode;
     } else {
       return escapeJsValue(value.coerceToString());
     }
@@ -352,18 +359,15 @@ public final class Sanitizers {
 
 
   /**
-   * Converts the input to a piece of a URI by percent encoding assuming a UTF-8 encoding.
+   * Converts the input to a piece of a URI by percent encoding the value as UTF-8 bytes.
    */
   public static String escapeUri(SoyValue value) {
-    if (isSanitizedContentOfKind(value, SanitizedContent.ContentKind.URI)) {
-      return normalizeUri(value);
-    }
     return escapeUri(value.coerceToString());
   }
 
 
   /**
-   * Converts plain text to a piece of a URI by percent encoding assuming a UTF-8 encoding.
+   * Converts plain text to a piece of a URI by percent encoding the string as UTF-8 bytes.
    */
   public static String escapeUri(String value) {
     return uriEscaper().escape(value);

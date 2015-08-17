@@ -21,10 +21,13 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.template.soy.ErrorReporterModule;
 import com.google.template.soy.SoyFileSetParserBuilder;
 import com.google.template.soy.basicdirectives.BasicDirectivesModule;
 import com.google.template.soy.basicfunctions.BasicFunctionsModule;
 import com.google.template.soy.data.SoyValueHelper;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.internal.SharedModule;
 import com.google.template.soy.sharedpasses.SharedPassesModule;
 import com.google.template.soy.sharedpasses.render.RenderVisitor;
@@ -42,11 +45,12 @@ import java.util.Collections;
  */
 public class TofuRenderVisitorTest extends TestCase {
 
-
-  private static final Injector INJECTOR =
-      Guice.createInjector(new SharedModule(), new SharedPassesModule(),
-          new BasicDirectivesModule(), new BasicFunctionsModule());
-
+  private static final Injector INJECTOR = Guice.createInjector(
+      new ErrorReporterModule(),
+      new SharedModule(),
+      new SharedPassesModule(),
+      new BasicDirectivesModule(),
+      new BasicFunctionsModule());
 
   // TODO: Does this belong in RenderVisitorTest instead?
   public void testLetWithinParam() throws Exception {
@@ -69,8 +73,11 @@ public class TofuRenderVisitorTest extends TestCase {
         "  {$boo}\n" +
         "{/template}\n";
 
-    SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(soyFileContent).parse();
-    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree);
+    ErrorReporter boom = ExplodingErrorReporter.get();
+    SoyFileSetNode soyTree = SoyFileSetParserBuilder.forFileContents(soyFileContent)
+        .errorReporter(boom)
+        .parse();
+    TemplateRegistry templateRegistry = new TemplateRegistry(soyTree, boom);
 
     // Important: This test will be doing its intended job only if we run
     // MarkParentNodesNeedingEnvFramesVisitor, because otherwise the 'let' within the 'param' block

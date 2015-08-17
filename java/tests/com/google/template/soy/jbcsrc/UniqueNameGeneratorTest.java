@@ -23,7 +23,7 @@ import junit.framework.TestCase;
 /**
  * Tests for {@link UniqueNameGenerator}
  */
-public class UniqueNameGeneratorTest extends TestCase {
+public final class UniqueNameGeneratorTest extends TestCase {
 
   public void testFieldNames() {
     UniqueNameGenerator nameSet = UniqueNameGenerator.forFieldNames();
@@ -33,6 +33,8 @@ public class UniqueNameGeneratorTest extends TestCase {
     } catch (IllegalArgumentException expected) {
       assertThat(expected.getMessage()).contains("contains dangerous characters!");
     }
+    assertThat(nameSet.hasName("foo<int>")).isFalse();
+
     nameSet.claimName("foo");
     try {
       nameSet.claimName("foo");
@@ -40,7 +42,7 @@ public class UniqueNameGeneratorTest extends TestCase {
     } catch (IllegalArgumentException expected) {
       assertThat(expected.getMessage()).contains("already claimed!");
     }
-
+    assertThat(nameSet.hasName("foo")).isTrue();
     assertEquals("foo%1", nameSet.generateName("foo"));
     assertEquals("foo%2", nameSet.generateName("foo"));
   }
@@ -54,5 +56,20 @@ public class UniqueNameGeneratorTest extends TestCase {
       assertThat(expected.getMessage()).contains("contains dangerous characters!");
     }
     nameSet.claimName("foo");
+  }
+
+  public void testHasName() {
+    UniqueNameGenerator nameSet = UniqueNameGenerator.forFieldNames();
+    String foo = nameSet.generateName("foo");
+    String foo2 = nameSet.generateName("foo");
+    String foo3 = nameSet.generateName("foo");
+    assertThat(foo).isEqualTo("foo");
+    assertThat(foo).isNotEqualTo(foo2);
+    assertThat(foo).isNotEqualTo(foo3);
+    assertThat(foo2).isNotEqualTo(foo3);
+    assertTrue(nameSet.hasName("foo"));
+    assertTrue(nameSet.hasName(foo));
+    assertTrue(nameSet.hasName(foo2));
+    assertTrue(nameSet.hasName(foo3));
   }
 }

@@ -21,7 +21,8 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.template.soy.SoyFileSetParserBuilder;
-import com.google.template.soy.internal.base.Pair;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.msgs.SoyMsgBundle;
 import com.google.template.soy.msgs.restricted.SoyMsg;
 import com.google.template.soy.msgs.restricted.SoyMsgBundleImpl;
@@ -32,8 +33,6 @@ import com.google.template.soy.msgs.restricted.SoyMsgPluralPart;
 import com.google.template.soy.msgs.restricted.SoyMsgRawTextPart;
 import com.google.template.soy.msgs.restricted.SoyMsgSelectPart;
 import com.google.template.soy.shared.SharedTestUtils;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.MsgFallbackGroupNode;
 import com.google.template.soy.soytree.MsgHtmlTagNode;
 import com.google.template.soy.soytree.MsgNode;
@@ -64,7 +63,7 @@ public final class InsertMsgsVisitorTest extends TestCase {
       "{namespace boo autoescape=\"deprecated-noncontextual\"}\n" +
       "\n" +
       "/** Test template. */\n" +
-      "{template name=\".foo\"}\n" +
+      "{template .foo}\n" +
       "  {$boo}scary{sp}\n" +
       "  {msg desc=\"Test.\"}\n" +
       "    random{$foo}\n" +
@@ -176,7 +175,7 @@ public final class InsertMsgsVisitorTest extends TestCase {
       "{namespace boo autoescape=\"deprecated-noncontextual\"}\n" +
       "\n" +
       "/** Test template with plural/select msgs. */\n" +
-      "{template name=\".foo\"}\n" +
+      "{template .foo}\n" +
       "  {msg desc=\"Plural message.\"}\n" +
       "    {plural $numFriends}\n" +
       "      {case 1}Added a friend to your circle.\n" +
@@ -248,11 +247,11 @@ public final class InsertMsgsVisitorTest extends TestCase {
                 "NUM_FRIENDS_1",
                 0,
                 ImmutableList.of(
-                    Pair.of(
+                    SoyMsgPluralPart.Case.create(
                         new SoyMsgPluralCaseSpec(1),
                         ImmutableList.<SoyMsgPart>of(
                             SoyMsgRawTextPart.of("Zcircle zyour zto zfriend za zadded."))),
-                    Pair.of(
+                    SoyMsgPluralPart.Case.create(
                         new SoyMsgPluralCaseSpec("other"),
                         ImmutableList.<SoyMsgPart>of(
                             SoyMsgRawTextPart.of("Zcircle zyour zto zfriends "),
@@ -270,11 +269,11 @@ public final class InsertMsgsVisitorTest extends TestCase {
             new SoyMsgSelectPart(
                 "GENDER",
                 ImmutableList.of(
-                    Pair.of(
+                    SoyMsgPart.Case.create(
                         "female",
                         ImmutableList.<SoyMsgPart>of(
                             SoyMsgRawTextPart.of("Zcircles zyour zin zis zshe."))),
-                    Pair.of(
+                    SoyMsgPart.Case.create(
                         (String) null,
                         ImmutableList.<SoyMsgPart>of(
                             SoyMsgRawTextPart.of("Zcircles zyour zin zis zhe."))))))));
@@ -300,7 +299,7 @@ public final class InsertMsgsVisitorTest extends TestCase {
       "{namespace boo autoescape=\"deprecated-noncontextual\"}\n" +
       "\n" +
       "/** Test template. */\n" +
-      "{template name=\".foo\"}\n" +
+      "{template .foo}\n" +
       "  {msg desc=\"\"}\n" +  // no trans + no trans
       "    noTrans1\n" +
       "  {fallbackmsg desc=\"\"}\n" +

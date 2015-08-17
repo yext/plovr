@@ -16,32 +16,35 @@
 
 package com.google.template.soy.soytree;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.template.soy.types.SoyTypes.makeNullable;
+
 import com.google.common.collect.ImmutableList;
 import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.data.SanitizedContent.ContentKind;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.exprtree.BooleanNode;
 import com.google.template.soy.exprtree.GlobalNode;
 import com.google.template.soy.exprtree.IntegerNode;
 import com.google.template.soy.exprtree.StringNode;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
 import com.google.template.soy.soytree.TemplateNode.SoyFileHeaderInfo;
 import com.google.template.soy.soytree.TemplateNodeBuilder.DeclInfo;
+import com.google.template.soy.soytree.TemplateNodeBuilder.DeclInfo.OptionalStatus;
+import com.google.template.soy.soytree.TemplateNodeBuilder.DeclInfo.Type;
 import com.google.template.soy.soytree.defn.HeaderParam;
 import com.google.template.soy.soytree.defn.SoyDocParam;
 import com.google.template.soy.soytree.defn.TemplateParam;
 import com.google.template.soy.soytree.defn.TemplateParam.DeclLoc;
 import com.google.template.soy.types.SoyTypeRegistry;
 import com.google.template.soy.types.aggregate.ListType;
-import com.google.template.soy.types.aggregate.UnionType;
 import com.google.template.soy.types.primitive.IntType;
-import com.google.template.soy.types.primitive.NullType;
 import com.google.template.soy.types.primitive.StringType;
 
 import junit.framework.TestCase;
 
 import java.util.List;
-
 
 /**
  * Unit tests for TemplateNode.
@@ -51,6 +54,7 @@ public class TemplateNodeTest extends TestCase {
 
   private static final SoyFileHeaderInfo SIMPLE_FILE_HEADER_INFO = new SoyFileHeaderInfo("testNs");
   private static final SoyTypeRegistry TYPE_REGISTRY = new SoyTypeRegistry();
+  private static final ErrorReporter FAIL = ExplodingErrorReporter.get();
 
   public void testParseSoyDoc() {
     String soyDoc = "" +
@@ -61,7 +65,8 @@ public class TemplateNodeTest extends TestCase {
         " * @param? goo\n" +
         " *     Goo to print.\n" +
         " */";
-    TemplateNode tn = new TemplateBasicNodeBuilder(SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN)
+    TemplateNode tn = new TemplateBasicNodeBuilder(
+        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, FAIL)
         .setId(0)
         .setCmdText(".boo")
         .setSoyDoc(soyDoc)
@@ -88,20 +93,46 @@ public class TemplateNodeTest extends TestCase {
         "/**\n" +
         " * @deprecated\n" +
         " */";
-    TemplateNode tn = new TemplateBasicNodeBuilder(SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN)
-        .setId(0).setCmdText(".boo").setSoyDoc(soyDoc).build();
+    TemplateNode tn = new TemplateBasicNodeBuilder(
+        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, FAIL)
+        .setId(0)
+        .setCmdText(".boo")
+        .setSoyDoc(soyDoc)
+        .build();
 
     assertEquals("&#64;deprecated", tn.getSoyDocDesc());
   }
 
   public void testParseHeaderDecls() {
     TemplateNode tn = templateBasicNode()
-        .setId(0).setCmdText(".boo").setSoyDoc("/** @param foo */")
-        .setHeaderDecls(ImmutableList.of(
-            new DeclInfo("@param", "goo   :   list<int>", null, false),
-            new DeclInfo("@param", "moo: string", "Something milky.", false),
-            new DeclInfo("@param", "boo: string", "Something scary.", true),
-            new DeclInfo("@inject", "zoo: string", "Something else.", false)))
+        .setId(0)
+        .setCmdText(".boo")
+        .setSoyDoc("/** @param foo */")
+        .setHeaderDecls(
+            new DeclInfo(
+                Type.PARAM,
+                OptionalStatus.REQUIRED,
+                "goo   :   list<int>",
+                null /* soyDoc */,
+                SourceLocation.UNKNOWN),
+            new DeclInfo(
+                Type.PARAM,
+                OptionalStatus.REQUIRED,
+                "moo: string",
+                "Something milky.",
+                SourceLocation.UNKNOWN),
+            new DeclInfo(
+                Type.PARAM,
+                OptionalStatus.OPTIONAL,
+                "boo: string",
+                "Something scary.",
+                SourceLocation.UNKNOWN),
+            new DeclInfo(
+                Type.INJECTED_PARAM,
+                OptionalStatus.REQUIRED,
+                "zoo: string",
+                "Something else.",
+                SourceLocation.UNKNOWN))
         .build();
 
     List<TemplateParam> params = tn.getParams();
@@ -129,8 +160,7 @@ public class TemplateNodeTest extends TestCase {
     HeaderParam headerParam3 = (HeaderParam) params.get(3);
     assertEquals("boo", headerParam3.name());
     assertEquals("string", headerParam3.typeSrc());
-    assertEquals(UnionType.of(StringType.getInstance(), NullType.getInstance()),
-        headerParam3.type());
+    assertEquals(makeNullable(StringType.getInstance()), headerParam3.type());
     assertFalse(headerParam3.isRequired());
     assertFalse(headerParam3.isInjected());
     assertEquals("Something scary.", headerParam3.desc());
@@ -154,7 +184,13 @@ public class TemplateNodeTest extends TestCase {
       templateBasicNode()
           .setId(0)
           .setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "33: int", null, false)))
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "33: int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -163,8 +199,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "f-oo: int", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "f-oo: int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -173,8 +216,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "foo", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -183,8 +233,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "foo:", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo:",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -193,8 +250,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", ": int", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  ": int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -203,8 +267,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "foo int", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -226,8 +297,15 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(new DeclInfo("@param", "ij: int", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "ij: int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -248,11 +326,27 @@ public class TemplateNodeTest extends TestCase {
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".boo")
-          .setHeaderDecls(ImmutableList.of(
-              new DeclInfo("@param", "goo: null", "Something slimy.", false),
-              new DeclInfo("@param", "foo: string", "Something random.", false),
-              new DeclInfo("@param", "foo: int", null, false)))
+          .setId(0)
+          .setCmdText(".boo")
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "goo: null",
+                  "Something slimy.",
+                  SourceLocation.UNKNOWN),
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo: string",
+                  "Something random.",
+                  SourceLocation.UNKNOWN),
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo: int",
+                  null /* soyDoc */,
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -263,8 +357,13 @@ public class TemplateNodeTest extends TestCase {
       templateBasicNode()
           .setId(0).setCmdText(".boo")
           .setSoyDoc("/** @param? foo Something. */")
-          .setHeaderDecls(ImmutableList.of(
-              new DeclInfo("@param", "foo: string", "Something else.", false)))
+          .setHeaderDecls(
+              new DeclInfo(
+                  Type.PARAM,
+                  OptionalStatus.REQUIRED,
+                  "foo: string",
+                  "Something else.",
+                  SourceLocation.UNKNOWN))
           .build();
       fail();
     } catch (SoySyntaxException sse) {
@@ -280,29 +379,28 @@ public class TemplateNodeTest extends TestCase {
           .build();
       fail();
     } catch (SoySyntaxException sse) {
-      assertTrue(sse.getMessage().contains(
+      assertThat(sse.getMessage()).contains(
           "Invalid 'template' command missing template name: "
-          + "{template autoescape=\"deprecated-noncontextual\"}."));
+          + "{template autoescape=\"deprecated-noncontextual\"}.");
     }
 
     try {
       templateBasicNode()
-          .setId(0).setCmdText(".foo name=\"x.foo\" autoescape=\"deprecated-noncontextual\"")
-          .setSoyDoc("/***/")
-          .build();
+          .setId(0).setCmdText(".foo autoescape=\"strict").setSoyDoc("/***/").build();
       fail();
-    } catch (SoySyntaxException sse) {
-      assertTrue(sse.getMessage().contains(
-          "Invalid 'template' command with template name declared multiple times (.foo, x.foo)."));
+    } catch (IllegalStateException e) {
+      assertThat(e.getMessage()).contains(
+          "Malformed attributes in 'template' command text (autoescape=\"strict).");
     }
-
     try {
       templateBasicNode()
-          .setId(0).setCmdText("autoescape=\"true").setSoyDoc("/***/").build();
+          .setId(0).setCmdText(".foo autoescape=\"false\"").setSoyDoc("/***/").build();
       fail();
-    } catch (SoySyntaxException sse) {
-      assertTrue(sse.getMessage().contains(
-          "Malformed attributes in 'template' command text (autoescape=\"true)."));
+    } catch (IllegalStateException e) {
+      assertThat(e.getMessage()).contains(
+          "Invalid value for attribute 'autoescape' in 'template' command text "
+          + "(autoescape=\"false\"). Valid values are "
+          + "[deprecated-noautoescape, deprecated-noncontextual, deprecated-contextual, strict].");
     }
   }
 
@@ -386,8 +484,8 @@ public class TemplateNodeTest extends TestCase {
             .setSoyDoc("/** Boo. */").build();
     assertEquals("namespace.boo", node.getDelTemplateName());
     assertEquals("abc", node.getDelTemplateVariant());
-    assertEquals("abc", node.getDelTemplateKey().variant);
-    assertNull(node.getDelTemplateKey().variantExpr);
+    assertEquals("abc", node.getDelTemplateKey().variant());
+    assertNull(node.getDelTemplateKey().variantExpr());
 
     // Variant is a global, that was not yet resolved.
     node = templateDelegateNode()
@@ -397,21 +495,21 @@ public class TemplateNodeTest extends TestCase {
         .build();
     assertEquals("namespace.boo", node.getDelTemplateName());
     assertNull(node.getDelTemplateVariant());
-    assertEquals("test.GLOBAL_CONSTANT", node.getDelTemplateKey().variantExpr);
+    assertEquals("test.GLOBAL_CONSTANT", node.getDelTemplateKey().variantExpr());
     // Verify the global expression.
     List<ExprUnion> exprUnions = node.getAllExprUnions();
     assertEquals(1, exprUnions.size());
     ExprUnion exprUnion = exprUnions.get(0);
     assertEquals("test.GLOBAL_CONSTANT", exprUnion.getExprText());
     assertEquals(1, exprUnion.getExpr().numChildren());
-    assertTrue(exprUnion.getExpr().getChild(0) instanceof GlobalNode);
+    assertTrue(exprUnion.getExpr().getRoot() instanceof GlobalNode);
     // Substitute the global expression.
     exprUnion.getExpr().replaceChild(
         0,
-        new IntegerNode(123, exprUnion.getExpr().getChild(0).getSourceLocation()));
+        new IntegerNode(123, exprUnion.getExpr().getRoot().getSourceLocation()));
     // Check the new values.
     assertEquals("123", node.getDelTemplateVariant());
-    assertEquals("123", node.getDelTemplateKey().variant);
+    assertEquals("123", node.getDelTemplateKey().variant());
 
     // Resolve a global to a string.
     node = templateDelegateNode()
@@ -424,7 +522,7 @@ public class TemplateNodeTest extends TestCase {
         .getExpr()
         .replaceChild(0, new StringNode("variant", node.getSourceLocation()));
     assertEquals("variant", node.getDelTemplateVariant());
-    assertEquals("variant", node.getDelTemplateKey().variant);
+    assertEquals("variant", node.getDelTemplateKey().variant());
   }
 
   public void testInvalidVariant() {
@@ -516,10 +614,10 @@ public class TemplateNodeTest extends TestCase {
   }
 
   public void testToSourceString() {
-    TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
+    ErrorReporter boom = ExplodingErrorReporter.get();
     TemplateNode tn = templateBasicNode()
         .setId(0)
-        .setCmdText("name=\".boo\"")
+        .setCmdText(".boo")
         .setSoyDoc("" +
             "/**\n" +
             " * Test template.\n" +
@@ -528,45 +626,54 @@ public class TemplateNodeTest extends TestCase {
             " * @param goo\n" +
             " *     Goo to print.\n" +
             " */")
-        .setHeaderDecls(ImmutableList.of(
-            new DeclInfo("@param", "moo: bool", "Something milky.", false),
-            new DeclInfo("@param", "too   :   string|null", null, false)))
+        .setHeaderDecls(
+            new DeclInfo(
+                Type.PARAM,
+                OptionalStatus.REQUIRED,
+                "moo: bool",
+                "Something milky.",
+                SourceLocation.UNKNOWN),
+            new DeclInfo(
+                Type.PARAM,
+                OptionalStatus.REQUIRED,
+                "too   :   string|null",
+                null /* soyDoc */,
+                SourceLocation.UNKNOWN))
         .build();
     tn.addChild(new RawTextNode(0, "  ", SourceLocation.UNKNOWN));  // 2 spaces
     tn.addChild(
         new PrintNode.Builder(0, true /* isImplicit */, SourceLocation.UNKNOWN)
             .exprText("$foo")
-            .build(errorReporter));
+            .build(boom));
     tn.addChild(
         new PrintNode.Builder(0, true /* isImplicit */, SourceLocation.UNKNOWN)
             .exprText("$goo")
-            .build(errorReporter));
+            .build(boom));
     tn.addChild(new RawTextNode(0, "  ", SourceLocation.UNKNOWN));  // 2 spaces
 
     assertEquals("" +
-        "/**\n" +
-        " * Test template.\n" +
-        " *\n" +
-        " * @param foo Foo to print.\n" +
-        " * @param goo\n" +
-        " *     Goo to print.\n" +
-        " */\n" +
-        "{template name=\".boo\"}\n" +
-        "  {@param moo: bool}  /** Something milky. */\n" +
-        "  {@param too: string|null}\n" +
-        "{sp} {$foo}{$goo} {sp}\n" +
-        "{/template}\n",
+            "/**\n" +
+            " * Test template.\n" +
+            " *\n" +
+            " * @param foo Foo to print.\n" +
+            " * @param goo\n" +
+            " *     Goo to print.\n" +
+            " */\n" +
+            "{template .boo}\n" +
+            "  {@param moo: bool}  /** Something milky. */\n" +
+            "  {@param too: string|null}\n" +
+            "{sp} {$foo}{$goo} {sp}\n" +
+            "{/template}\n",
         tn.toSourceString());
-    errorReporter.throwIfErrorsPresent();
   }
 
   private static TemplateBasicNodeBuilder templateBasicNode() {
     return new TemplateBasicNodeBuilder(
-        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, TYPE_REGISTRY);
+        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, FAIL, TYPE_REGISTRY);
   }
 
   private static TemplateDelegateNodeBuilder templateDelegateNode() {
     return new TemplateDelegateNodeBuilder(
-        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, TYPE_REGISTRY);
+        SIMPLE_FILE_HEADER_INFO, SourceLocation.UNKNOWN, FAIL, TYPE_REGISTRY);
   }
 }

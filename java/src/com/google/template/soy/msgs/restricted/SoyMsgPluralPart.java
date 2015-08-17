@@ -16,8 +16,13 @@
 
 package com.google.template.soy.msgs.restricted;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.collect.ImmutableList;
-import com.google.template.soy.internal.base.Pair;
+import com.google.template.soy.msgs.restricted.SoyMsgPart.Case;
+
+import com.ibm.icu.text.PluralRules;
+import com.ibm.icu.util.ULocale;
 
 import java.util.Objects;
 
@@ -27,7 +32,6 @@ import java.util.Objects;
  */
 public final class SoyMsgPluralPart extends SoyMsgPart {
 
-
   /** The plural variable name. */
   private final String pluralVarName;
 
@@ -35,7 +39,7 @@ public final class SoyMsgPluralPart extends SoyMsgPart {
   private final int offset;
 
   /** The various cases for this plural statement. The default statement has a null key. */
-  private final ImmutableList<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>> cases;
+  private final ImmutableList<Case<SoyMsgPluralCaseSpec>> cases;
 
 
   /**
@@ -44,7 +48,7 @@ public final class SoyMsgPluralPart extends SoyMsgPart {
    * @param cases The list of cases for this plural statement.
    */
   public SoyMsgPluralPart(String pluralVarName, int offset,
-      ImmutableList<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>> cases) {
+      ImmutableList<Case<SoyMsgPluralCaseSpec>> cases) {
 
     this.pluralVarName = pluralVarName;
     this.offset = offset;
@@ -65,10 +69,60 @@ public final class SoyMsgPluralPart extends SoyMsgPart {
 
 
   /** Returns the cases. */
-  public ImmutableList<Pair<SoyMsgPluralCaseSpec, ImmutableList<SoyMsgPart>>> getCases() {
+  public ImmutableList<Case<SoyMsgPluralCaseSpec>> getCases() {
     return cases;
   }
 
+  public ImmutableList<SoyMsgPart> lookupCase(int pluralValue, ULocale locale) {
+    // Handle cases.
+    ImmutableList<SoyMsgPart> caseParts = null;
+
+    // Check whether the plural value matches any explicit numeric value.
+    boolean hasNonExplicitCases = false;
+    ImmutableList<SoyMsgPart> otherCaseParts = null;
+    for (Case<SoyMsgPluralCaseSpec> case0 : getCases()) {
+
+      SoyMsgPluralCaseSpec pluralCaseSpec = case0.spec();
+      SoyMsgPluralCaseSpec.Type caseType = pluralCaseSpec.getType();
+      if (caseType == SoyMsgPluralCaseSpec.Type.EXPLICIT) {
+        if (pluralCaseSpec.getExplicitValue() == pluralValue) {
+          caseParts = case0.parts();
+          break;
+        }
+
+      } else if (caseType == SoyMsgPluralCaseSpec.Type.OTHER) {
+        otherCaseParts = case0.parts();
+
+      } else {
+        hasNonExplicitCases = true;
+
+      }
+    }
+
+    if (caseParts == null && hasNonExplicitCases) {
+      // Didn't match any numeric value.  Check which plural rule it matches.
+      String pluralKeyword = PluralRules.forLocale(locale).select(pluralValue - offset);
+      SoyMsgPluralCaseSpec.Type correctCaseType =
+          new SoyMsgPluralCaseSpec(pluralKeyword).getType();
+
+
+      // Iterate the cases once again for non-numeric keywords.
+      for (Case<SoyMsgPluralCaseSpec> case0 : getCases()) {
+
+        if (case0.spec().getType() == correctCaseType) {
+          caseParts = case0.parts();
+          break;
+        }
+      }
+    }
+
+    if (caseParts == null) {
+      // Fall back to the "other" case. This can happen either if there aren't any non-specific
+      // cases, or there is not the non-specific case that we need.
+      caseParts = otherCaseParts;
+    }
+    return checkNotNull(caseParts);
+  }
 
   @Override public boolean equals(Object other) {
     if (!(other instanceof SoyMsgPluralPart)) {

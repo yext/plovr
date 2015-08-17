@@ -19,10 +19,10 @@ package com.google.template.soy.sharedpasses;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.template.soy.SoyFileSetParserBuilder;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.shared.SharedTestUtils;
 import com.google.template.soy.shared.SoyCssRenamingMap;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.CssNode;
 import com.google.template.soy.soytree.PrintNode;
 import com.google.template.soy.soytree.RawTextNode;
@@ -42,7 +42,7 @@ public final class RenameCssVisitorTest extends TestCase {
       "{namespace boo autoescape=\"deprecated-noncontextual\"}\n" +
       "\n" +
       "/** Test template. @param goo */\n" +
-      "{template name=\".foo\"}\n" +
+      "{template .foo}\n" +
       "  <div class=\"{css AAA} {css $goo, AAA} {css BBB} {css $goo, BBB}\">\n" +
       "{/template}\n";
 

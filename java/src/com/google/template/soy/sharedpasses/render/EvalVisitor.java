@@ -28,6 +28,7 @@ import static com.google.template.soy.shared.internal.SharedRuntime.times;
 
 import com.google.common.collect.Lists;
 import com.google.template.soy.data.SoyAbstractValue;
+import com.google.template.soy.data.SoyDataException;
 import com.google.template.soy.data.SoyEasyDict;
 import com.google.template.soy.data.SoyMap;
 import com.google.template.soy.data.SoyRecord;
@@ -39,6 +40,7 @@ import com.google.template.soy.data.restricted.IntegerData;
 import com.google.template.soy.data.restricted.NullData;
 import com.google.template.soy.data.restricted.StringData;
 import com.google.template.soy.data.restricted.UndefinedData;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.AbstractReturningExprNodeVisitor;
 import com.google.template.soy.exprtree.BooleanNode;
 import com.google.template.soy.exprtree.DataAccessNode;
@@ -65,6 +67,7 @@ import com.google.template.soy.exprtree.OperatorNodes.ModOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.NegativeOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.NotEqualOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.NotOpNode;
+import com.google.template.soy.exprtree.OperatorNodes.NullCoalescingOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.OrOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.PlusOpNode;
 import com.google.template.soy.exprtree.OperatorNodes.TimesOpNode;
@@ -128,9 +131,12 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
    * @param env The current environment.
    */
   protected EvalVisitor(
-      SoyValueHelper valueHelper, @Nullable Map<String, SoyJavaFunction> soyJavaFunctionsMap,
-      @Nullable SoyRecord ijData, Environment env) {
-
+      SoyValueHelper valueHelper,
+      @Nullable Map<String, SoyJavaFunction> soyJavaFunctionsMap,
+      @Nullable SoyRecord ijData,
+      Environment env,
+      ErrorReporter errorReporter) {
+    super(errorReporter);
     this.valueHelper = valueHelper;
     this.soyJavaFunctionsMap = soyJavaFunctionsMap;
     this.ijData = ijData;
@@ -143,7 +149,7 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
 
 
   @Override protected SoyValue visitExprRootNode(ExprRootNode node) {
-    return visit(node.getChild(0));
+    return visit(node.getRoot());
   }
 
 
@@ -481,6 +487,14 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
     }
   }
 
+  @Override protected SoyValue visitNullCoalescingOpNode(NullCoalescingOpNode node) {
+    SoyValue operand0 = visit(node.getChild(0));
+    // identical to the implementation of isNonnull
+    if (operand0 instanceof NullData || operand0 instanceof UndefinedData) {
+      return visit(node.getChild(1));
+    }
+    return operand0;
+  }
 
   // -----------------------------------------------------------------------------------------------
   // Implementations for functions.
@@ -502,6 +516,8 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
           return visitIndexFunction(node);
         case QUOTE_KEYS_IF_JS:
           return visitMapLiteralNode((MapLiteralNode) node.getChild(0));
+        case CHECK_NOT_NULL:
+          return visitCheckNotNull(node.getChild(0));
         default:
           throw new AssertionError();
       }
@@ -516,6 +532,14 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
     }
     // Note: Arity has already been checked by CheckFunctionCallsVisitor.
     return computeFunctionHelper(fn, args, node);
+  }
+
+  private SoyValue visitCheckNotNull(ExprNode child) {
+    SoyValue childValue = visit(child);
+    if (childValue instanceof NullData || childValue instanceof UndefinedData) {
+      throw new SoyDataException(child.toSourceString() + " is null");
+    }
+    return childValue;
   }
 
 
@@ -634,7 +658,7 @@ public class EvalVisitor extends AbstractReturningExprNodeVisitor<SoyValue> {
 
     private NullSafetySentinel() {}
 
-    @Override public boolean equals(SoyValue other) {
+    @Override public boolean equals(Object other) {
       return other == INSTANCE;
     }
 

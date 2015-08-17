@@ -16,15 +16,21 @@
 
 package com.google.template.soy.soytree;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import com.google.common.collect.ImmutableList;
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
 import com.google.template.soy.soytree.SoyNode.SplitLevelTopNode;
 import com.google.template.soy.soytree.SoyNode.StandaloneNode;
 import com.google.template.soy.soytree.SoyNode.StatementNode;
 
 /**
- * Represents a group of one or more messages. If more than one message, then they form a fallback
- * list (first message that has a translation will be shown).
+ * Represents one message or a pair of message and fallback message.
+ *
+ * <p>Only one {@code fallbackmsg} is allowed by the parser.
+ * {@link com.google.template.soy.soyparse.TemplateParserTest.java#testRecognizeCommands}
+ * TODO(user): fix the grammar.
  *
  * <p> Important: Do not use outside of Soy code (treat as superpackage-private).
  *
@@ -56,8 +62,8 @@ public final class MsgFallbackGroupNode extends AbstractParentSoyNode<MsgNode>
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private MsgFallbackGroupNode(MsgFallbackGroupNode orig) {
-    super(orig);
+  private MsgFallbackGroupNode(MsgFallbackGroupNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.escapingDirectiveNames = orig.escapingDirectiveNames;
   }
 
@@ -80,9 +86,21 @@ public final class MsgFallbackGroupNode extends AbstractParentSoyNode<MsgNode>
     return (BlockNode) super.getParent();
   }
 
+  public boolean hasFallbackMsg() {
+    return numChildren() > 1;
+  }
 
-  @Override public MsgFallbackGroupNode clone() {
-    return new MsgFallbackGroupNode(this);
+  public MsgNode getMsg() {
+    return getChild(0);
+  }
+
+  public MsgNode getFallbackMsg() {
+    checkState(hasFallbackMsg(), "This node doesn't have a {fallbackmsg}");
+    return getChild(1);
+  }
+
+  @Override public MsgFallbackGroupNode copy(CopyState copyState) {
+    return new MsgFallbackGroupNode(this, copyState);
   }
 
   /**

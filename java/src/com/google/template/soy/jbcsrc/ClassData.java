@@ -19,6 +19,8 @@ package com.google.template.soy.jbcsrc;
 import com.google.auto.value.AutoValue;
 
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.util.CheckClassAdapter;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceClassVisitor;
 
@@ -32,8 +34,22 @@ import java.io.StringWriter;
   static ClassData create(TypeInfo type, byte[] b) {
     return new AutoValue_ClassData(type, b);
   }
+
   abstract TypeInfo type();
   abstract byte[] data();
+
+  /** 
+   * Runs the {@link CheckClassAdapter} on this class in basic analysis mode.
+   * 
+   * <p>Basic anaylsis mode can flag verification errors that don't depend on knowing complete type
+   * information for the classes and methods being called.  This is useful for flagging simple
+   * generation mistakes (e.g. stack underflows, method return type mismatches, accessing invalid
+   * locals).  Additionally, the error messages are more useful than what the java verifier normally
+   * presents. 
+   */
+  void checkClass() {
+    new ClassReader(data()).accept(new CheckClassAdapter(new ClassNode(), true), 0);
+  }
 
   @Override public String toString() {
     StringWriter sw = new StringWriter();

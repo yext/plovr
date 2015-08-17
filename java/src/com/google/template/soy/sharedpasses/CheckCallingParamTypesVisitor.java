@@ -20,13 +20,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
+import com.google.template.soy.base.SourceLocation;
 import com.google.template.soy.base.SoySyntaxException;
+import com.google.template.soy.data.SanitizedContent.ContentKind;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.sharedpasses.FindIndirectParamsVisitor.IndirectParamsInfo;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallBasicNode;
 import com.google.template.soy.soytree.CallDelegateNode;
@@ -37,20 +38,23 @@ import com.google.template.soy.soytree.CallParamValueNode;
 import com.google.template.soy.soytree.SoyFileSetNode;
 import com.google.template.soy.soytree.SoyNode;
 import com.google.template.soy.soytree.SoyNode.ParentSoyNode;
-import com.google.template.soy.soytree.SoySyntaxExceptionUtils;
 import com.google.template.soy.soytree.TemplateDelegateNode;
 import com.google.template.soy.soytree.TemplateNode;
 import com.google.template.soy.soytree.TemplateRegistry;
 import com.google.template.soy.soytree.TemplateRegistry.DelegateTemplateDivision;
 import com.google.template.soy.soytree.defn.HeaderParam;
 import com.google.template.soy.soytree.defn.TemplateParam;
+import com.google.template.soy.soytree.defn.TemplateParam.DeclLoc;
 import com.google.template.soy.types.SoyType;
+import com.google.template.soy.types.SoyTypes;
 import com.google.template.soy.types.aggregate.UnionType;
-import com.google.template.soy.types.primitive.NullType;
 import com.google.template.soy.types.primitive.SanitizedType;
+import com.google.template.soy.types.primitive.StringType;
 import com.google.template.soy.types.proto.SoyProtoType;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -70,6 +74,11 @@ import java.util.Set;
  */
 public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<Void> {
 
+  private static final SoyError ARGUMENT_TYPE_MISMATCH =
+      SoyError.of("Type mismatch on param {0}: expected: {1}, actual: {2}.");
+  private static final SoyError PASSING_PROTOBUF_FROM_STRICT_TO_NON_STRICT =
+      SoyError.of("Passing protobuf {0} of type {1} to non-strict template not allowed.");
+
   /** Registry of all templates in the Soy tree. */
   private TemplateRegistry templateRegistry;
 
@@ -77,7 +86,7 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
   private TemplateNode callerTemplate;
 
   /** Map of all template parameters, both explicit and implicit, organized by template. */
-  private final Map<TemplateNode, TemplateParamTypes> paramTypesMap = Maps.newHashMap();
+  private final Map<TemplateNode, TemplateParamTypes> paramTypesMap = new HashMap<>();
 
   public CheckCallingParamTypesVisitor(ErrorReporter errorReporter) {
     super(errorReporter);
@@ -91,7 +100,7 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
   @Override protected void visitSoyFileSetNode(SoyFileSetNode node) {
 
     // Build templateRegistry.
-    templateRegistry = new TemplateRegistry(node);
+    templateRegistry = new TemplateRegistry(node, errorReporter);
     visitChildren(node);
     templateRegistry = null;
   }
@@ -106,21 +115,16 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
   }
 
   @Override protected void visitCallDelegateNode(CallDelegateNode node) {
-    Set<DelegateTemplateDivision> divisions =
-        templateRegistry.getDelTemplateDivisionsForAllVariants(
-            node.getDelCalleeName());
-    if (divisions != null) {
-      ImmutableMap.Builder<TemplateDelegateNode, ImmutableList<TemplateParam>>
-      paramsToCheckByTemplate = ImmutableMap.builder();
-      for (DelegateTemplateDivision division : divisions) {
-        for (TemplateDelegateNode delTemplate :
-          division.delPackageNameToDelTemplateMap.values()) {
-          Set<TemplateParam> params = checkCallParamTypes(node, delTemplate);
-          paramsToCheckByTemplate.put(delTemplate, ImmutableList.copyOf(params));
-        }
+    ImmutableMap.Builder<TemplateDelegateNode, ImmutableList<TemplateParam>>
+        paramsToCheckByTemplate = ImmutableMap.builder();
+    for (DelegateTemplateDivision division : templateRegistry.getDelTemplateDivisionsForAllVariants(
+        node.getDelCalleeName())) {
+      for (TemplateDelegateNode delTemplate : division.delPackageNameToDelTemplateMap.values()) {
+        Set<TemplateParam> params = checkCallParamTypes(node, delTemplate);
+        paramsToCheckByTemplate.put(delTemplate, ImmutableList.copyOf(params));
       }
-      node.setParamsToRuntimeCheck(paramsToCheckByTemplate.build());
     }
+    node.setParamsToRuntimeCheck(paramsToCheckByTemplate.build());
 
     visitChildren(node);
   }
@@ -144,10 +148,10 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
   private Set<TemplateParam> checkCallParamTypes(CallNode call, TemplateNode callee) {
     TemplateParamTypes calleeParamTypes = getTemplateParamTypes(callee);
     // Explicit params being passed by the CallNode
-    Set<String> explicitParams = Sets.newHashSet();
+    Set<String> explicitParams = new HashSet<>();
     // The set of params the need runtime type checking at template call time. We start this with
     // all the params of the callee and remove each param that is statically verified.
-    Set<String> paramNamesToRuntimeCheck = Sets.newHashSet(calleeParamTypes.params.keySet());
+    Set<String> paramNamesToRuntimeCheck = new HashSet<>(calleeParamTypes.params.keySet());
     // indirect params should be checked at their callsites, not this one.
     paramNamesToRuntimeCheck.removeAll(calleeParamTypes.indirectParamNames);
 
@@ -160,8 +164,10 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
           argType = expr.getType();
         }
       } else if (callerParam.getKind() == SoyNode.Kind.CALL_PARAM_CONTENT_NODE) {
-        argType = SanitizedType.getTypeForContentKind(
-            ((CallParamContentNode) callerParam).getContentKind());
+        ContentKind contentKind = ((CallParamContentNode) callerParam).getContentKind();
+        argType = contentKind == null
+            ? StringType.getInstance()
+            : SanitizedType.getTypeForContentKind(contentKind);
       }
       String paramName = callerParam.getKey();
       if (argType != null) {
@@ -177,8 +183,8 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
         boolean staticTypeSafe = true;
         for (SoyType formalType : declaredParamTypes) {
           staticTypeSafe &= checkArgumentAgainstParamType(
-              call, paramName, argType, formalType,
-              calleeParamTypes.isIndirect(paramName));
+              callerParam.getSourceLocation(), paramName, argType, formalType,
+              calleeParamTypes);
         }
         if (staticTypeSafe) {
           paramNamesToRuntimeCheck.remove(paramName);
@@ -190,8 +196,8 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
 
     // If the caller is passing data via data="all" then we look for matching static param
     // declarations in the callers template and see if there are type errors there.
-    if (call.isPassingData()) {
-      if (call.isPassingAllData() && callerTemplate.getParams() != null) {
+    if (call.dataAttribute().isPassingData()) {
+      if (call.dataAttribute().isPassingAllData() && callerTemplate.getParams() != null) {
         // Check indirect params that are passed via data="all".
         // We only need to check explicit params of calling template here.
         for (TemplateParam callerParam : callerTemplate.getParams()) {
@@ -210,8 +216,8 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
           boolean staticTypeSafe = true;
           for (SoyType formalType : declaredParamTypes) {
             staticTypeSafe &= checkArgumentAgainstParamType(
-                call, paramName, callerParam.type(), formalType,
-                calleeParamTypes.isIndirect(paramName));
+                call.getSourceLocation(), paramName, callerParam.type(), formalType,
+                calleeParamTypes);
           }
           if (staticTypeSafe) {
             paramNamesToRuntimeCheck.remove(paramName);
@@ -227,7 +233,7 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
     // have are the names of the parameters.  To convert them to a TemplateParam of the callee we
     // need to match the names and it is easier to do that as one pass at the end instead of
     // iteratively throughout.
-    Set<TemplateParam> paramsToRuntimeCheck = Sets.newHashSet();
+    Set<TemplateParam> paramsToRuntimeCheck = new HashSet<>();
     for (TemplateParam param : callee.getParams()) {
       if (paramNamesToRuntimeCheck.remove(param.name())) {
         paramsToRuntimeCheck.add(param);
@@ -243,20 +249,26 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
   /**
    * Check that the argument passed to the template is compatible with the template
    * parameter type.
-   * @param call The call node.
+   * @param location The location to report a type check error.
    * @param paramName the name of the parameter.
    * @param argType The type of the value being passed.
    * @param formalType The type of the parameter.
-   * @param isIndirect Whether the parameter is an indirect parameter.
+   * @param calleeParams metadata about the callee parameters
    * @return true if runtime type checks can be elided for this param
    */
   private boolean checkArgumentAgainstParamType(
-      CallNode call, String paramName, SoyType argType, SoyType formalType, boolean isIndirect) {
-    if (formalType.getKind() == SoyType.Kind.UNKNOWN ||
+      SourceLocation location, String paramName, SoyType argType, SoyType formalType,
+      TemplateParamTypes calleeParams) {
+    if (!calleeParams.isStrictlyTyped
+        && formalType.getKind() == SoyType.Kind.UNKNOWN ||
         formalType.getKind() == SoyType.Kind.ANY) {
       // Special rules for unknown / any
       if (argType instanceof SoyProtoType) {
-        reportProtoArgumentTypeMismatch(call, paramName, formalType, argType);
+        errorReporter.report(
+            location,
+            PASSING_PROTOBUF_FROM_STRICT_TO_NON_STRICT,
+            paramName,
+            argType);
       }
     } else if (argType.getKind() == SoyType.Kind.UNKNOWN) {
       // Special rules for unknown / any
@@ -270,10 +282,10 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
       // }
     } else {
       if (!formalType.isAssignableFrom(argType)) {
-        if (isIndirect &&
-            argType.getKind() == SoyType.Kind.UNION &&
-            ((UnionType) argType).isNullable()) {
-          if (UnionType.of(formalType, NullType.getInstance()).isAssignableFrom(argType)) {
+        if (calleeParams.isIndirect(paramName)
+            && argType.getKind() == SoyType.Kind.UNION
+            && ((UnionType) argType).isNullable()) {
+          if (SoyTypes.makeNullable(formalType).isAssignableFrom(argType)) {
             // Special case for indirect params: Allow a nullable type to be assigned
             // to a non-nullable type if the non-nullable type is an indirect parameter type.
             // The reason is because without flow analysis, we can't know whether or not
@@ -282,29 +294,11 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
             return false;
           }
         }
-        reportArgumentTypeMismatch(call, paramName, formalType, argType);
+        errorReporter.report(location, ARGUMENT_TYPE_MISMATCH, paramName, formalType, argType);
       }
     }
     return true;
   }
-
-
-  private void reportArgumentTypeMismatch(
-      SoyNode node, String paramName, SoyType paramType, SoyType argType) {
-    throw SoySyntaxExceptionUtils.createWithNode(
-        "Argument type mismatch: cannot call template parameter '" + paramName +
-        "' with type '" + paramType + "' with value of type '" + argType + "'", node);
-  }
-
-
-  private void reportProtoArgumentTypeMismatch(
-      SoyNode node, String paramName, SoyType paramType, SoyType argType) {
-    throw SoySyntaxExceptionUtils.createWithNode(
-        "Argument type mismatch: cannot mix protobuf / non-protobuf types " +
-        "when calling template parameter '" + paramName + "' with type '" + paramType +
-        "' with value of type '" + argType + "'", node);
-  }
-
 
   /**
    * Get the parameter types for a callee.
@@ -319,6 +313,9 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
       // Store all of the explicitly declared param types
       if (node.getParams() != null) {
         for (TemplateParam param : node.getParams()) {
+          if (param.declLoc() == DeclLoc.SOY_DOC) {
+            paramTypes.isStrictlyTyped = false;
+          }
           Preconditions.checkNotNull(param.type());
           paramTypes.params.put(param.name(), param.type());
         }
@@ -346,8 +343,9 @@ public final class CheckCallingParamTypesVisitor extends AbstractSoyNodeVisitor<
 
 
   private static class TemplateParamTypes {
+    public boolean isStrictlyTyped = true;
     public final Multimap<String, SoyType> params = HashMultimap.create();
-    public final Set<String> indirectParamNames = Sets.newHashSet();
+    public final Set<String> indirectParamNames = new HashSet<>();
 
     public boolean isIndirect(String paramName) {
       return indirectParamNames.contains(paramName);

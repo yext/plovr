@@ -16,11 +16,13 @@
 
 package com.google.template.soy.pysrc.internal;
 
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.shared.internal.ApiCallScope;
 import com.google.template.soy.soytree.AbstractReturningSoyNodeVisitor;
 import com.google.template.soy.soytree.CallNode;
 import com.google.template.soy.soytree.CallParamContentNode;
 import com.google.template.soy.soytree.CallParamValueNode;
+import com.google.template.soy.soytree.CssNode;
 import com.google.template.soy.soytree.DebuggerNode;
 import com.google.template.soy.soytree.ForNode;
 import com.google.template.soy.soytree.ForeachNode;
@@ -62,7 +64,8 @@ class IsComputableAsPyExprVisitor extends AbstractReturningSoyNodeVisitor<Boolea
   private final Map<SoyNode, Boolean> memoizedResults;
 
   @Inject
-  IsComputableAsPyExprVisitor() {
+  IsComputableAsPyExprVisitor(ErrorReporter errorReporter) {
+    super(errorReporter);
     memoizedResults = new HashMap<>();
   }
 
@@ -107,6 +110,10 @@ class IsComputableAsPyExprVisitor extends AbstractReturningSoyNodeVisitor<Boolea
 
   @Override protected Boolean visitLetNode(LetNode node) {
     return false;
+  }
+
+  @Override protected Boolean visitCssNode(CssNode node) {
+    return true;
   }
 
   @Override protected Boolean visitIfNode(IfNode node) {

@@ -17,8 +17,7 @@
 package com.google.template.soy.data;
 
 import com.google.template.soy.data.internal.RenderableThunk;
-import com.google.template.soy.jbcsrc.api.AdvisingAppendable;
-import com.google.template.soy.jbcsrc.api.RenderResult;
+import com.google.template.soy.data.restricted.SoyString;
 
 import java.io.IOException;
 
@@ -32,7 +31,7 @@ import javax.annotation.concurrent.Immutable;
  */
 @ParametersAreNonnullByDefault
 @Immutable
-public abstract class SanitizedContent extends SoyData {
+public abstract class SanitizedContent extends SoyData implements SoyString {
   /**
    * Creates a SanitizedContent object.
    *
@@ -103,6 +102,8 @@ public abstract class SanitizedContent extends SoyData {
      * This is effectively the "null" entry of this enum, and is sometimes used to explicitly mark
      * content that should never be used unescaped. Since any string is safe to use as text, being
      * of ContentKind.TEXT makes no guarantees about its safety in any other context such as HTML.
+     *
+     * <p>In the soy type system, {@code TEXT} is equivalent to the string type.
      */
     TEXT
     ;
@@ -218,11 +219,6 @@ public abstract class SanitizedContent extends SoyData {
     @Override
     public void render(Appendable appendable) throws IOException {
       thunk.render(appendable);
-    }
-
-    @Override
-    public RenderResult render(AdvisingAppendable appendable, boolean isLast) throws IOException {
-      return thunk.render(appendable, isLast);
     }
 
     @Override

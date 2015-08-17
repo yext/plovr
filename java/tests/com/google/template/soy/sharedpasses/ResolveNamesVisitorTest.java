@@ -24,8 +24,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.template.soy.SoyFileSetParserBuilder;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.basetree.SyntaxVersion;
+import com.google.template.soy.error.ExplodingErrorReporter;
 import com.google.template.soy.exprtree.VarRefNode;
-import com.google.template.soy.soyparse.ExplodingErrorReporter;
 import com.google.template.soy.soytree.ForeachNode;
 import com.google.template.soy.soytree.ForeachNonemptyNode;
 import com.google.template.soy.soytree.IfCondNode;
@@ -147,9 +147,9 @@ public final class ResolveNamesVisitorTest extends TestCase {
     assertThat(firstLet.getVar().localVariableIndex()).isEqualTo(0);
     assertThat(secondLet.getVar().localVariableIndex()).isEqualTo(1);
     assertThat(thirdLet.getVar().localVariableIndex()).isEqualTo(2);
-    assertThat(((VarRefNode) secondLet.getValueExpr().getChild(0)).getDefnDecl())
+    assertThat(((VarRefNode) secondLet.getValueExpr().getRoot()).getDefnDecl())
         .isEqualTo(firstLet.getVar());
-    assertThat(((VarRefNode) thirdLet.getValueExpr().getChild(0)).getDefnDecl())
+    assertThat(((VarRefNode) thirdLet.getValueExpr().getRoot()).getDefnDecl())
         .isEqualTo(secondLet.getVar());
   }
 

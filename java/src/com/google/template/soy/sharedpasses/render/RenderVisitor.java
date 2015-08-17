@@ -39,14 +39,16 @@ import com.google.template.soy.data.restricted.IntegerData;
 import com.google.template.soy.data.restricted.NullData;
 import com.google.template.soy.data.restricted.StringData;
 import com.google.template.soy.data.restricted.UndefinedData;
+import com.google.template.soy.error.ErrorReporter;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprRootNode;
+import com.google.template.soy.jbcsrc.api.RenderResult;
 import com.google.template.soy.msgs.SoyMsgBundle;
 import com.google.template.soy.shared.SoyCssRenamingMap;
 import com.google.template.soy.shared.SoyIdRenamingMap;
+import com.google.template.soy.shared.internal.SharedRuntime;
 import com.google.template.soy.shared.restricted.SoyJavaPrintDirective;
 import com.google.template.soy.sharedpasses.render.EvalVisitor.EvalVisitorFactory;
-import com.google.template.soy.soyparse.ErrorReporter;
 import com.google.template.soy.soytree.AbstractSoyNodeVisitor;
 import com.google.template.soy.soytree.CallBasicNode;
 import com.google.template.soy.soytree.CallDelegateNode;
@@ -415,7 +417,7 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
       if (child instanceof SwitchCaseNode) {
         SwitchCaseNode scn = (SwitchCaseNode) child;
         for (ExprNode caseExpr : scn.getExprList()) {
-          if (switchValue.equals(eval(caseExpr, scn))) {
+          if (SharedRuntime.equal(switchValue, eval(caseExpr, scn))) {
             visit(scn);
             return;
           }
@@ -535,7 +537,7 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
             node);
       }
     }
-    DelTemplateKey delegateKey = new DelTemplateKey(node.getDelCalleeName(), variant);
+    DelTemplateKey delegateKey = DelTemplateKey.create(node.getDelCalleeName(), variant);
 
     TemplateDelegateNode callee;
     try {
@@ -563,10 +565,10 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
 
     // ------ Build the call data. ------
     SoyRecord dataToPass;
-    if (node.isPassingAllData()) {
+    if (node.dataAttribute().isPassingAllData()) {
       dataToPass = data;
-    } else if (node.isPassingData()) {
-      SoyValue dataRefValue = eval(node.getDataExpr(), node);
+    } else if (node.dataAttribute().isPassingData()) {
+      SoyValue dataRefValue = eval(node.dataAttribute().dataExpr(), node);
       if (!(dataRefValue instanceof SoyRecord)) {
         throw RenderException.create("In 'call' command " + node.toSourceString() +
         ", the data reference does not resolve to a SoyRecord.")
@@ -579,7 +581,8 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
 
     SoyRecord callData;
 
-    if (node.numChildren() == 0) {
+    int numChildren = node.numChildren();
+    if (numChildren == 0) {
       // --- Cases 1 and 2: Not passing params. ---
       if (dataToPass == null) {
         // Case 1: Not passing data and not passing params.
@@ -595,10 +598,10 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
 
       if (dataToPass == null) {
         // Case 3: Not passing data and passing params.
-        mutableCallData = new BasicParamStore();
+        mutableCallData = new BasicParamStore(numChildren);
       } else {
         // Case 4: Passing data and passing params.
-        mutableCallData = new AugmentedParamStore(dataToPass);
+        mutableCallData = new AugmentedParamStore(dataToPass, numChildren);
       }
 
       for (CallParamNode child : node.getChildren()) {
@@ -787,8 +790,8 @@ public class RenderVisitor extends AbstractSoyNodeVisitor<Void> {
         return eval(expr, node);
       }
 
-      @Override public ResolveStatus status() {
-        return ResolveStatus.ready();
+      @Override public RenderResult status() {
+        return RenderResult.done();
       }
     };
   }

@@ -23,6 +23,8 @@ import com.google.template.soy.data.restricted.IntegerData;
 import com.google.template.soy.data.restricted.NumberData;
 import com.google.template.soy.data.restricted.StringData;
 
+import java.util.Objects;
+
 /**
  * Runtime implementation of common expression operators to be shared between the {@code jbcsrc} and
  * {@code Tofu} backends.
@@ -35,28 +37,28 @@ public final class SharedRuntime {
    */
   public static boolean equal(SoyValue operand0, SoyValue operand1) {
     // Treat the case where either is a string specially.
+    // TODO(gboyer): This should probably handle SanitizedContent == SanitizedContent, even though
     if (operand0 instanceof StringData) {
       return compareString((StringData) operand0, operand1);
     }
     if (operand1 instanceof StringData) {
       return compareString((StringData) operand1, operand0);
     }
-    return operand0.equals(operand1);
+    return Objects.equals(operand0, operand1);
   }
 
   /**
    * Performs the {@code +} operator on the two values.
    */
   public static SoyValue plus(SoyValue operand0, SoyValue operand1) {
-    // Treat the case where either is a string specially.
     if (operand0 instanceof IntegerData && operand1 instanceof IntegerData) {
       return IntegerData.forValue(operand0.longValue() + operand1.longValue());
-    } else if (operand0 instanceof StringData || operand1 instanceof StringData) {
-      // String concatenation. Note we're calling toString() instead of stringValue() in case one
-      // of the operands needs to be coerced to a string.
-      return StringData.forValue(operand0.toString() + operand1);
-    } else {
+    } else if (operand0 instanceof NumberData && operand1 instanceof NumberData) {
       return FloatData.forValue(operand0.numberValue() + operand1.numberValue());
+    } else {
+      // String concatenation is the fallback for other types (like in JS). Use the implemented
+      // coerceToString() for the type.
+      return StringData.forValue(operand0.coerceToString() + operand1.coerceToString());
     }
   }
 

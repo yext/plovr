@@ -18,13 +18,14 @@ package com.google.template.soy.soytree;
 
 import com.google.common.collect.ImmutableList;
 import com.google.template.soy.base.SourceLocation;
+import com.google.template.soy.basetree.CopyState;
+import com.google.template.soy.error.ErrorReporter;
+import com.google.template.soy.error.ErrorReporter.Checkpoint;
+import com.google.template.soy.error.ExplodingErrorReporter;
+import com.google.template.soy.error.SoyError;
 import com.google.template.soy.exprparse.ExpressionParser;
 import com.google.template.soy.exprtree.ExprNode;
 import com.google.template.soy.exprtree.ExprRootNode;
-import com.google.template.soy.soyparse.ErrorReporter;
-import com.google.template.soy.soyparse.ErrorReporter.Checkpoint;
-import com.google.template.soy.soyparse.SoyError;
-import com.google.template.soy.soyparse.TransitionalThrowingErrorReporter;
 import com.google.template.soy.soytree.CommandTextAttributesParser.Attribute;
 import com.google.template.soy.soytree.SoyNode.ExprHolderNode;
 import com.google.template.soy.soytree.SoyNode.MsgSubstUnitNode;
@@ -90,10 +91,10 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
    * Copy constructor.
    * @param orig The node to copy.
    */
-  private MsgPluralNode(MsgPluralNode orig) {
-    super(orig);
+  private MsgPluralNode(MsgPluralNode orig, CopyState copyState) {
+    super(orig, copyState);
     this.offset = orig.offset;
-    this.pluralExpr = orig.pluralExpr.clone();
+    this.pluralExpr = orig.pluralExpr.copy(copyState);
     this.basePluralVarName = orig.basePluralVarName;
   }
 
@@ -143,8 +144,8 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
   }
 
 
-  @Override public MsgPluralNode clone() {
-    return new MsgPluralNode(this);
+  @Override public MsgPluralNode copy(CopyState copyState) {
+    return new MsgPluralNode(this, copyState);
   }
 
   /**
@@ -152,8 +153,10 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
    */
   public static final class Builder {
 
-    public static final MsgPluralNode ERROR = new Builder(-1, "plural", SourceLocation.UNKNOWN)
-        .buildAndThrowIfInvalid(); // guaranteed to be valid
+    private static MsgPluralNode error() {
+      return new Builder(-1, "plural", SourceLocation.UNKNOWN)
+          .build(ExplodingErrorReporter.get()); // guaranteed to be valid
+    }
 
     private final int id;
     private final String commandText;
@@ -172,7 +175,7 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
 
     /**
      * Returns a new {@link MsgPluralNode} built from the builder's state. If the builder's state
-     * is invalid, errors are reported to {@code errorReporter} and {@link Builder#ERROR}
+     * is invalid, errors are reported to {@code errorReporter} and {@link Builder#error}
      * is returned.
      */
     public MsgPluralNode build(ErrorReporter errorReporter) {
@@ -191,7 +194,8 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
       // If attributes were given, parse them.
       if (matcher.group(2) != null) {
         try {
-          Map<String, String> attributes = ATTRIBUTES_PARSER.parse(matcher.group(2).trim());
+          Map<String, String> attributes
+              = ATTRIBUTES_PARSER.parse(matcher.group(2).trim(), errorReporter, sourceLocation);
           String offsetAttribute = attributes.get("offset");
           offset = Integer.parseInt(offsetAttribute);
           if (offset < 0) {
@@ -206,19 +210,11 @@ public final class MsgPluralNode extends AbstractParentCommandNode<CaseOrDefault
           pluralExpr, FALLBACK_BASE_PLURAL_VAR_NAME);
 
       if (errorReporter.errorsSince(checkpoint)) {
-        return ERROR;
+        return error();
       }
 
-      MsgPluralNode node = new MsgPluralNode(
+      return new MsgPluralNode(
           id, sourceLocation, commandText, offset, new ExprRootNode(pluralExpr), basePluralVarName);
-      return node;
-    }
-
-    private MsgPluralNode buildAndThrowIfInvalid() {
-      TransitionalThrowingErrorReporter errorReporter = new TransitionalThrowingErrorReporter();
-      MsgPluralNode node = build(errorReporter);
-      errorReporter.throwIfErrorsPresent();
-      return node;
     }
   }
 }
