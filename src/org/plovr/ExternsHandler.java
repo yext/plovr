@@ -7,7 +7,7 @@ import java.io.Writer;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
-final class ExternsHandler extends AbstractGetHandler {
+public final class ExternsHandler extends AbstractGetHandler {
 
   public ExternsHandler(CompilationServer server) {
     super(server);

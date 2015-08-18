@@ -16,7 +16,7 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
-final class IndexRequestHandler implements HttpHandler {
+public final class IndexRequestHandler implements HttpHandler {
 
   private final CompilationServer server;
 

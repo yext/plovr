@@ -8,7 +8,7 @@ import com.google.javascript.jscomp.SourceMap;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
-final class SourceMapHandler extends AbstractGetHandler {
+public final class SourceMapHandler extends AbstractGetHandler {
 
   public SourceMapHandler(CompilationServer server) {
     super(server);

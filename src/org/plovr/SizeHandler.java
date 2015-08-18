@@ -17,7 +17,7 @@ import com.google.template.soy.tofu.SoyTofu;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 
-final class SizeHandler extends AbstractGetHandler {
+public final class SizeHandler extends AbstractGetHandler {
 
   private final Pattern inputDelimiterPattern = Pattern.compile(
       "// Input (\\d+): (\\S+).*");

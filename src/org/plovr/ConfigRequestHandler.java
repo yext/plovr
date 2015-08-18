@@ -12,7 +12,7 @@ import com.sun.net.httpserver.HttpExchange;
  *
  * @author bolinfest@gmail.com (Michael Bolin)
  */
-final class ConfigRequestHandler extends AbstractGetHandler {
+public final class ConfigRequestHandler extends AbstractGetHandler {
 
   public ConfigRequestHandler(CompilationServer server) {
     super(server, true /* usesRestfulPath */);

@@ -19,7 +19,7 @@ import com.sun.net.httpserver.HttpExchange;
  * than plaintext, so InputFileHandler should be used to get the raw input file.
  * @author bolinfest@gmail.com (Michael Bolin)
  */
-final class ViewFileHandler extends AbstractGetHandler {
+public final class ViewFileHandler extends AbstractGetHandler {
 
   private final SoyTofu viewTemplate;
 
