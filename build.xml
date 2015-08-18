@@ -254,6 +254,22 @@
     </jar>
   </target>
 
+  <target name="src-jar"
+          depends="pre-compile"
+          description="build plovr-src.jar">
+    <mkdir dir="${build.dir}" />
+    <jar destfile="${build.dir}/plovr-src.jar">
+      <zipfileset dir="${closure-stylesheets.dir}/src" />
+      <zipfileset dir="${closure-stylesheets.dir}/build/genfiles" />
+      <zipfileset dir="${closure-compiler.dir}/src" />
+      <zipfileset dir="${closure-compiler.dir}/gen" />
+      <zipfileset dir="${closure-templates.dir}/java/src" />
+      <zipfileset dir="${closure-templates.dir}/build/genfiles" />
+      <zipfileset dir="${src.dir}" />
+      <zipfileset dir="${test.dir}" />
+    </jar>
+  </target>
+
   <target name="integration-test"
           depends="jar"
           description="build the jar and run it on localhost:9818">
