@@ -326,17 +326,15 @@
           description="generate HTML Javadoc for the org.plovr Java code"
           >
     <mkdir dir="${javadoc.dir}" />
-    <javadoc sourcepath="${src.dir}"
+    <javadoc sourcepath="${src.dir}:${closure-compiler.dir}/build/genfiles:${closure-compiler.dir}/src:${closure-templates.dir}/build/genfiles:${closure-templates.dir}/java/src:${closure-stylesheets.dir}/src:${closure-stylesheets.dir}/build/genfiles"
              destdir="${javadoc.dir}"
              protected="true"
              windowtitle="plovr"
              classpathref="plovr.classpath"
              >
-      <link href="http://download.oracle.com/javase/6/docs/api/" />
-      <link href="http://docs.guava-libraries.googlecode.com/git/javadoc/" />
+      <link href="http://download.oracle.com/javase/8/docs/api/" />
+      <link href="http://google.github.io/guava/releases/18.0/api/docs/" />
       <link href="http://google-gson.googlecode.com/svn/tags/gson-1.7.1/docs/javadocs/" />
-      <link href="http://closure-compiler.googlecode.com/svn/trunk/javadoc/" />
-      <link href="http://closure-templates.googlecode.com/svn/trunk/javadoc-complete/" />
     </javadoc>
   </target>
 
