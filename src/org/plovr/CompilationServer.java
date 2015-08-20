@@ -58,7 +58,7 @@ public final class CompilationServer implements Runnable {
     configs.put(id, config);
   }
 
-  private void reload(Config config) throws IOException {
+  public void reload(Config config) throws IOException {
     Preconditions.checkNotNull(config.getConfigFile(),
         "Can't reload a config without a file");
 
