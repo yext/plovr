@@ -612,6 +612,13 @@ public enum ConfigOption {
     }
   }),
 
+  SOY_GENERATE_GOOG_MSGS("soy-generate-goog-msgs", new ConfigUpdater() {
+    @Override
+    public void apply(boolean soyGenerateGoogMsgs, Config.Builder builder) {
+      builder.setSoyGenerateGoogMsgs(soyGenerateGoogMsgs);
+    }
+  }),
+
   JSDOC_HTML_OUTPUT_PATH("jsdoc-html-output-path", new ConfigUpdater() {
     @Override
     public void apply(String jsDocHtmlOutputPath, Config.Builder builder) {

@@ -98,6 +98,8 @@ public final class Config implements Comparable<Config> {
 
   private final boolean soyUseInjectedData;
 
+  private final boolean soyGenerateGoogMsgs;
+
   private final CompilationMode compilationMode;
 
   private final WarningLevel warningLevel;
@@ -194,6 +196,7 @@ public final class Config implements Comparable<Config> {
       List<File> testExcludePaths,
       List<String> soyFunctionPlugins,
       boolean soyUseInjectedData,
+      boolean soyGenerateGoogMsgs,
       CompilationMode compilationMode,
       WarningLevel warningLevel,
       boolean debug,
@@ -244,6 +247,7 @@ public final class Config implements Comparable<Config> {
     this.testExcludePaths = ImmutableSet.copyOf(testExcludePaths);
     this.soyFunctionPlugins = ImmutableList.copyOf(soyFunctionPlugins);
     this.soyUseInjectedData = soyUseInjectedData;
+    this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
     this.compilationMode = compilationMode;
     this.warningLevel = warningLevel;
     this.debug = debug;
@@ -946,6 +950,8 @@ public final class Config implements Comparable<Config> {
 
     private boolean soyUseInjectedData = false;
 
+    private boolean soyGenerateGoogMsgs = false;
+
     private ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses = ImmutableListMultimap.of();
 
     private ImmutableList.Builder<WarningsGuardFactory> customWarningsGuards = ImmutableList.builder();
@@ -1273,6 +1279,10 @@ public final class Config implements Comparable<Config> {
       this.soyUseInjectedData = soyUseInjectedData;
     }
 
+    public void setSoyGenerateGoogMsgs(boolean soyGenerateGoogMsgs) {
+      this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
+    }
+
     public void setCustomPasses(
         ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses) {
       this.customPasses = ImmutableListMultimap.copyOf(customPasses);
@@ -1535,7 +1545,7 @@ public final class Config implements Comparable<Config> {
         }
 
         SoyFileOptions soyFileOptions = new SoyFileOptions(soyFunctionNames,
-            !this.excludeClosureLibrary, this.soyUseInjectedData);
+            !this.excludeClosureLibrary, this.soyUseInjectedData, this.soyGenerateGoogMsgs);
 
         manifest = new Manifest(
             excludeClosureLibrary,
@@ -1560,6 +1570,7 @@ public final class Config implements Comparable<Config> {
           testExcludePaths,
           soyFunctionNames,
           this.soyUseInjectedData,
+          this.soyGenerateGoogMsgs,
           compilationMode,
           warningLevel,
           debug,
