@@ -17,26 +17,30 @@ final class SoyFileOptions {
   final List<String> pluginModuleNames;
   final boolean useClosureLibrary;
   final boolean isUsingInjectedData;
+  final boolean soyGenerateGoogMsgs;
 
   public SoyFileOptions() {
     this(ImmutableList.<String>of(), /* pluginModuleNames */
         true, /* useClosureLibrary */
-        false); /* isUsingInjectedData */
+        false, /* isUsingInjectedData */
+        false); /* soyGenerateGoogMsgs */
   }
 
   public SoyFileOptions(List<String> pluginModuleNames,
       boolean useClosureLibrary,
-      boolean isUsingInjectedData) {
+      boolean isUsingInjectedData,
+      boolean soyGenerateGoogMsgs) {
     Preconditions.checkNotNull(pluginModuleNames);
     this.pluginModuleNames = ImmutableList.copyOf(pluginModuleNames);
     this.useClosureLibrary = useClosureLibrary;
     this.isUsingInjectedData = isUsingInjectedData;
+    this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(
-        pluginModuleNames, useClosureLibrary, isUsingInjectedData);
+        pluginModuleNames, useClosureLibrary, isUsingInjectedData, soyGenerateGoogMsgs);
   }
 
   @Override
@@ -50,6 +54,7 @@ final class SoyFileOptions {
     SoyFileOptions that = (SoyFileOptions)obj;
     return Objects.equal(this.pluginModuleNames, that.pluginModuleNames) &&
         Objects.equal(this.useClosureLibrary, that.useClosureLibrary) &&
-        Objects.equal(this.isUsingInjectedData, that.isUsingInjectedData);
+        Objects.equal(this.isUsingInjectedData, that.isUsingInjectedData) &&
+        Objects.equal(this.soyGenerateGoogMsgs, that.soyGenerateGoogMsgs);
   }
 }
