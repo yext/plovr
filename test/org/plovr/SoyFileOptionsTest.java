@@ -25,6 +25,7 @@ public class SoyFileOptionsTest {
     SoyFileOptions options = new SoyFileOptions(pluginModuleNames, false, "/tmp");
     assertFalse(options.useClosureLibrary);
     assertEquals("/tmp", options.protoFileDescriptors);
+    assertFalse(options.soyGenerateGoogMsgs);
     assertEquals(ImmutableList.of("one", "two"), options.pluginModuleNames);
   }
 
@@ -36,6 +37,7 @@ public class SoyFileOptionsTest {
     assertEquals(defaultOptions.hashCode(), defaultOptions2.hashCode());
 
     List<String> pluginModuleNames = ImmutableList.of("one", "two");
+
     SoyFileOptions options = new SoyFileOptions(pluginModuleNames, false, "");
     assertFalse(defaultOptions.equals(options));
     assertTrue(defaultOptions.hashCode() != options.hashCode());

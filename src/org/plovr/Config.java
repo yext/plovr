@@ -111,6 +111,8 @@ public final class Config implements Comparable<Config> {
 
   private final String soyProtoFileDescriptors;
 
+  private final boolean soyGenerateGoogMsgs;
+
   private final CompilationMode compilationMode;
 
   private final WarningLevel warningLevel;
@@ -222,6 +224,7 @@ public final class Config implements Comparable<Config> {
       List<String> soyFunctionPlugins,
       String soyTranslationPlugin,
       String soyProtoFileDescriptors,
+      boolean soyGenerateGoogMsgs,
       CompilationMode compilationMode,
       WarningLevel warningLevel,
       boolean debug,
@@ -280,6 +283,7 @@ public final class Config implements Comparable<Config> {
     this.soyFunctionPlugins = ImmutableList.copyOf(soyFunctionPlugins);
     this.soyTranslationPlugin = soyTranslationPlugin;
     this.soyProtoFileDescriptors = soyProtoFileDescriptors;
+    this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
     this.compilationMode = compilationMode;
     this.warningLevel = warningLevel;
     this.debug = debug;
@@ -1083,6 +1087,8 @@ public final class Config implements Comparable<Config> {
 
     private String soyProtoFileDescriptors = "";
 
+    private boolean soyGenerateGoogMsgs = false;
+
     private ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses = ImmutableListMultimap.of();
 
     private ImmutableList.Builder<WarningsGuardFactory> customWarningsGuards = ImmutableList.builder();
@@ -1459,6 +1465,10 @@ public final class Config implements Comparable<Config> {
       this.soyProtoFileDescriptors = soyProtoFileDescriptors;
     }
 
+    public void setSoyGenerateGoogMsgs(boolean soyGenerateGoogMsgs) {
+      this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
+    }
+
     public void setCustomPasses(
         ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses) {
       this.customPasses = ImmutableListMultimap.copyOf(customPasses);
@@ -1786,6 +1796,7 @@ public final class Config implements Comparable<Config> {
             .setUseClosureLibrary(!this.excludeClosureLibrary)
             .setProtoFileDescriptors(this.soyProtoFileDescriptors)
             .setMsgBundle(getSoyMsgBundle())
+            .setGenerateGoogMsgs(this.soyGenerateGoogMsgs)
             .build();
 
         manifest = new Manifest(
@@ -1812,6 +1823,7 @@ public final class Config implements Comparable<Config> {
           soyFunctionNames,
           soyTranslationPlugin,
           this.soyProtoFileDescriptors,
+          this.soyGenerateGoogMsgs,
           compilationMode,
           warningLevel,
           debug,

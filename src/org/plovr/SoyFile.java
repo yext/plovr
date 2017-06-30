@@ -16,6 +16,7 @@ import com.google.inject.Module;
 import com.google.template.soy.SoyFileSet;
 import com.google.template.soy.SoyModule;
 import com.google.template.soy.base.SoySyntaxException;
+import com.google.template.soy.internal.i18n.BidiGlobalDir;
 import com.google.template.soy.jssrc.SoyJsSrcOptions;
 import com.google.template.soy.msgs.SoyMsgBundle;
 
@@ -51,7 +52,12 @@ public class SoyFile extends LocalFileJsInput {
       value.setShouldProvideRequireSoyNamespaces(options.useClosureLibrary);
       value.setShouldDeclareTopLevelNamespaces(options.useClosureLibrary);
       value.setShouldGenerateGoogMsgDefs(options.useClosureLibrary && options.msgBundle == null);
-      value.setUseGoogIsRtlForBidiGlobalDir(options.useClosureLibrary && options.msgBundle == null);
+      if (!options.soyGenerateGoogMsgs) {
+          value.setUseGoogIsRtlForBidiGlobalDir(options.useClosureLibrary && options.msgBundle == null);
+      } else {
+          value.setShouldGenerateGoogMsgDefs(options.soyGenerateGoogMsgs);
+          value.setBidiGlobalDir(BidiGlobalDir.LTR.getStaticValue());
+      }
 
       jsSrcOptionsMap.put(options, value);
     }

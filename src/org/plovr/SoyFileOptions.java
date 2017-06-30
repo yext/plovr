@@ -19,34 +19,39 @@ final class SoyFileOptions {
   final boolean useClosureLibrary;
   final String protoFileDescriptors;
   final SoyMsgBundle msgBundle;
+  final boolean soyGenerateGoogMsgs;
 
   public SoyFileOptions() {
     this(ImmutableList.<String>of(), /* pluginModuleNames */
         true, /* useClosureLibrary */
-        ""); /* protoFileDescriptors */
+         "", /* protoFileDescriptors */
+        null,
+        false); /* soyGenerateGoogMsgs */
   }
 
   public SoyFileOptions(List<String> pluginModuleNames,
       boolean useClosureLibrary,
       String protoFileDescriptors) {
-    this(pluginModuleNames, useClosureLibrary, protoFileDescriptors, null);
+    this(pluginModuleNames, useClosureLibrary, protoFileDescriptors, null, false);
   }
 
   private SoyFileOptions(List<String> pluginModuleNames,
       boolean useClosureLibrary,
       String protoFileDescriptors,
-      SoyMsgBundle msgBundle) {
+      SoyMsgBundle msgBundle,
+      boolean soyGenerateGoogMsgs) {
     Preconditions.checkNotNull(pluginModuleNames);
     this.pluginModuleNames = ImmutableList.copyOf(pluginModuleNames);
     this.useClosureLibrary = useClosureLibrary;
     this.protoFileDescriptors = protoFileDescriptors;;
     this.msgBundle = msgBundle;
+    this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(
-        pluginModuleNames, useClosureLibrary, protoFileDescriptors, msgBundle);
+        pluginModuleNames, useClosureLibrary, protoFileDescriptors, msgBundle, soyGenerateGoogMsgs);
   }
 
   @Override
@@ -61,7 +66,8 @@ final class SoyFileOptions {
     return Objects.equal(this.pluginModuleNames, that.pluginModuleNames) &&
         Objects.equal(this.useClosureLibrary, that.useClosureLibrary) &&
         Objects.equal(this.protoFileDescriptors, that.protoFileDescriptors) &&
-        Objects.equal(this.msgBundle, that.msgBundle);
+        Objects.equal(this.msgBundle, that.msgBundle) &&
+        Objects.equal(this.soyGenerateGoogMsgs, that.soyGenerateGoogMsgs);
   }
 
   public static class Builder {
@@ -69,6 +75,7 @@ final class SoyFileOptions {
     boolean useClosureLibrary = false;
     String protoFileDescriptors = "";
     SoyMsgBundle msgBundle = null;
+    boolean generateGoogMsgs = false;
 
     public Builder setPluginModuleNames(List<String> values) {
       pluginModuleNames = values;
@@ -90,12 +97,18 @@ final class SoyFileOptions {
       return this;
     }
 
+    public Builder setGenerateGoogMsgs(boolean value) {
+      generateGoogMsgs = value;
+      return this;
+    }
+
     public SoyFileOptions build() {
       return new SoyFileOptions(
           pluginModuleNames,
           useClosureLibrary,
           protoFileDescriptors,
-          msgBundle);
+          msgBundle,
+          generateGoogMsgs);
     }
   }
 }
