@@ -140,16 +140,14 @@ public class ExtractCommand extends AbstractCommandRunner<ExtractCommandOptions>
         }
       }
 
-      soyMsgs.add(
-          new SoyMsg(
-              Long.valueOf(msg.getId()),
-              null /* localeString */,
-              msg.getMeaning(),
-              msg.getDesc(),
-              msg.isHidden(),
-              null /* contentType */,
-              new SourceLocation(msg.getSourceName()),
-              parts));
+      soyMsgs.add(SoyMsg.builder()
+          .setId(Long.valueOf(msg.getId()))
+          .setMeaning(msg.getMeaning())
+          .setDesc(msg.getDesc())
+          .setIsHidden(msg.isHidden())
+          .setSourceLocation(new SourceLocation(msg.getSourceName()))
+          .setParts(parts)
+          .build());
     }
 
     return new SoyMsgBundleImpl(null, soyMsgs);

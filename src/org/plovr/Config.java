@@ -705,7 +705,7 @@ public final class Config implements Comparable<Config> {
     }
     options.setCodingConvention(new ClosureCodingConvention());
     warningLevel.setOptionsForWarningLevel(options);
-    options.prettyPrint = prettyPrint;
+    options.setPrettyPrint(prettyPrint);
     options.printInputDelimiter = printInputDelimiter;
     if (printInputDelimiter) {
       options.inputDelimiter = "// Input %num%: %name%";
@@ -1947,6 +1947,16 @@ public final class Config implements Comparable<Config> {
     public boolean isOutOfDate() {
       // true if the last modified time has changed
       return this.lastModified != file.lastModified();
+    }
+  }
+
+  public boolean shouldEmitUseStrict() {
+    switch (languageOut) {
+      case ECMASCRIPT3:
+      case ECMASCRIPT5:
+        return false;
+      default:
+        return true;
     }
   }
 }

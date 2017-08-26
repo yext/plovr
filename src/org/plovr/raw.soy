@@ -1,4 +1,4 @@
-{namespace org.plovr autoescape="deprecated-noncontextual"}
+{namespace org.plovr autoescape="strict"}
 
 /**
  * @param? moduleInfo
@@ -6,18 +6,18 @@
  * @param filesAsJsonArray
  * @param path
  */
-{template .raw}
+{template .raw kind="js"}
 CLOSURE_NO_DEPS = true;
 {if $moduleInfo}
-PLOVR_MODULE_INFO={$moduleInfo|noAutoescape};
+PLOVR_MODULE_INFO={$moduleInfo};
 {/if}
 {if $moduleUris}
-PLOVR_MODULE_URIS={$moduleUris|noAutoescape};
+PLOVR_MODULE_URIS={$moduleUris};
 {/if}
 PLOVR_MODULE_USE_DEBUG_MODE=true;
 (function() {lb}
-{sp}{sp}var files = {$filesAsJsonArray|noAutoescape};{\n}
-{sp}{sp}var path = '{$path|noAutoescape}';{\n}
+{sp}{sp}var files = {$filesAsJsonArray};{\n}
+{sp}{sp}var path = '{$path}';{\n}
 {literal}
   var scriptEl;
   var doc = document;
@@ -45,6 +45,6 @@ PLOVR_MODULE_USE_DEBUG_MODE=true;
 /**
  * @param src
  */
-{template .loadRootModule}
-document.write('<script type="text/javascript" src="{$src|noAutoescape}"><\/script>');
+{template .loadRootModule kind="js"}
+document.write('<script type="text/javascript" src="{$src}"><\/script>');
 {/template}

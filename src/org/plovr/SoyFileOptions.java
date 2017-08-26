@@ -25,7 +25,7 @@ final class SoyFileOptions {
     this(ImmutableList.<String>of(), /* pluginModuleNames */
         true, /* useClosureLibrary */
          "", /* protoFileDescriptors */
-        null,
+        null, /* msgBundle */
         false); /* soyGenerateGoogMsgs */
   }
 

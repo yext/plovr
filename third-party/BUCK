@@ -2,7 +2,9 @@ java_library(
   name = 'COMPILE',
   visibility = ['PUBLIC'],
   exported_deps = [
-    ':com.google.template-soy-jar',
+    # PATCH(robfig): use our patched soy version
+    ':com.google.template-soy-jar-2017-08-08',
+
     ':javax.inject-javax.inject-jar',
     ':com.google.inject-guice-jar',
     ':aopalliance-aopalliance-jar',
@@ -27,6 +29,8 @@ java_library(
     ':org.json-json-jar',
     ':com.google.javascript-closure-compiler-jar',
     ':com.google.javascript-closure-compiler-externs-jar',
+    ':com.google.errorprone-error_prone_annotations-jar',
+    ':com.google.jsinterop-jsinterop-annotations-jar',
     ':org.seleniumhq.selenium-selenium-java-jar',
     ':org.seleniumhq.selenium-selenium-android-driver-jar',
     ':org.seleniumhq.selenium-selenium-remote-driver-jar',
@@ -97,6 +101,11 @@ java_library(
     ':org.mockito-mockito-core-jar',
     ':org.objenesis-objenesis-jar'
   ],
+)
+
+prebuilt_jar(
+  name = 'com.google.template-soy-jar-2017-08-08',
+  binary_jar = 'closure-templates-2017-08-08.jar',
 )
 
 prebuilt_jar(
@@ -172,6 +181,18 @@ remote_file(
 )
 
 prebuilt_jar(
+  name = 'com.google.errorprone-error_prone_annotations-jar',
+  binary_jar = ':remote-com.google.errorprone-error_prone_annotations-jar',
+)
+
+remote_file(
+  name = 'remote-com.google.errorprone-error_prone_annotations-jar',
+  out = 'com.google.errorprone-error_prone_annotations-jar-2.0.18.jar',
+  url = 'mvn:com.google.errorprone:error_prone_annotations:jar:2.0.18',
+  sha1 = '5f65affce1684999e2f4024983835efc3504012e',
+)
+
+prebuilt_jar(
   name = 'com.google.guava-guava-jar',
   binary_jar = ':remote-com.google.guava-guava-jar',
 )
@@ -238,9 +259,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.javascript-closure-compiler-jar',
-  out = 'com.google.javascript-closure-compiler-jar-v20160822.jar',
-  url = 'mvn:com.google.javascript:closure-compiler:jar:v20160822',
-  sha1 = '2c6ba5240a2853c6d7f4f7b8e437cd0d31c559e7',
+  out = 'com.google.javascript-closure-compiler-jar-v20170806.jar',
+  url = 'mvn:com.google.javascript:closure-compiler:jar:v20170806',
+  sha1 = '708706764914ee53821d70f24db33c3b40c19812',
 )
 
 prebuilt_jar(
@@ -250,9 +271,21 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.javascript-closure-compiler-externs-jar',
-  out = 'com.google.javascript-closure-compiler-externs-jar-v20160822.jar',
-  url = 'mvn:com.google.javascript:closure-compiler-externs:jar:v20160822',
-  sha1 = '96640565d55f6711e5021e3d2120bd46c0ae075a',
+  out = 'com.google.javascript-closure-compiler-externs-jar-v20170806.jar',
+  url = 'mvn:com.google.javascript:closure-compiler-externs:jar:v20170806',
+  sha1 = '167b06d1a35eafeaec667ec40a3f59761d0b0ea2',
+)
+
+prebuilt_jar(
+  name = 'com.google.jsinterop-jsinterop-annotations-jar',
+  binary_jar = ':remote-com.google.jsinterop-jsinterop-annotations-jar',
+)
+
+remote_file(
+  name = 'remote-com.google.jsinterop-jsinterop-annotations-jar',
+  out = 'com.google.jsinterop-jsinterop-annotations-jar-1.0.0.jar',
+  url = 'mvn:com.google.jsinterop:jsinterop-annotations:jar:1.0.0',
+  sha1 = '23c3a3c060ffe4817e67673cc8294e154b0a4a95',
 )
 
 prebuilt_jar(
@@ -262,9 +295,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.protobuf-protobuf-java-jar',
-  out = 'com.google.protobuf-protobuf-java-jar-3.0.0-beta-2.jar',
-  url = 'mvn:com.google.protobuf:protobuf-java:jar:3.0.0-beta-2',
-  sha1 = 'de80fe047052445869b96f6def6baca7182c95af',
+  out = 'com.google.protobuf-protobuf-java-jar-3.3.0.jar',
+  url = 'mvn:com.google.protobuf:protobuf-java:jar:3.3.0',
+  sha1 = '9f301d1a27501b1afcb2ed16aad428337dabf9e4',
 )
 
 prebuilt_jar(
@@ -274,9 +307,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.template-soy-jar',
-  out = 'com.google.template-soy-jar-2017-02-01.jar',
-  url = 'mvn:com.google.template:soy:jar:2017-02-01',
-  sha1 = '8638940b207779fe3b75e55b6e65abbefb6af678',
+  out = 'com.google.template-soy-jar-2017-08-08.jar',
+  url = 'mvn:com.google.template:soy:jar:2017-08-08',
+  sha1 = '792aa49e3ec3f61e793e56b499f0724df1c1e16c',
 )
 
 prebuilt_jar(
@@ -376,18 +409,6 @@ remote_file(
 )
 
 prebuilt_jar(
-  name = 'javax.validation-validation-api-jar',
-  binary_jar = ':remote-javax.validation-validation-api-jar',
-)
-
-remote_file(
-  name = 'remote-javax.validation-validation-api-jar',
-  out = 'javax.validation-validation-api-jar-1.0.0.GA.jar',
-  url = 'mvn:javax.validation:validation-api:jar:1.0.0.GA',
-  sha1 = 'b6bd7f9d78f6fdaa3c37dae18a4bd298915f328e',
-)
-
-prebuilt_jar(
   name = 'javax.validation-validation-api-sources',
   binary_jar = ':remote-javax.validation-validation-api-sources',
 )
@@ -397,6 +418,18 @@ remote_file(
   out = 'javax.validation-validation-api-sources-1.0.0.GA.jar',
   url = 'mvn:javax.validation:validation-api:sources:1.0.0.GA',
   sha1 = '7a561191db2203550fbfa40d534d4997624cd369',
+)
+
+prebuilt_jar(
+  name = 'javax.validation-validation-api-jar',
+  binary_jar = ':remote-javax.validation-validation-api-jar',
+)
+
+remote_file(
+  name = 'remote-javax.validation-validation-api-jar',
+  out = 'javax.validation-validation-api-jar-1.0.0.GA.jar',
+  url = 'mvn:javax.validation:validation-api:jar:1.0.0.GA',
+  sha1 = 'b6bd7f9d78f6fdaa3c37dae18a4bd298915f328e',
 )
 
 prebuilt_jar(

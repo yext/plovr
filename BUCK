@@ -14,8 +14,8 @@ java_library(
     'library_manifest.txt',
     'third_party_manifest.txt'
   ],
-  source = '7',
-  target = '7',
+  source = '8',
+  target = '8',
   deps = [
     '//tools/imports:revs',
     ':third-party-support-libs',
