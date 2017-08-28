@@ -26,6 +26,11 @@ java_library(
 )
 
 java_library(
+  name = 'plovr-lib-src',
+  resources = glob(['src/**/*.java']),
+)
+
+java_library(
   name = 'third-party-support-libs',
   srcs = [],
   resources = ['//third-party/javascript:soyutils_usegoog.js'],
