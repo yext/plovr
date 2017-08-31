@@ -397,7 +397,7 @@ public final class Compilation {
     final boolean isDebugMode = false;
 
     if (sourceMapPath != null) {
-        new File(sourceMapPath).mkdirs();
+        new File(sourceMapPath).getParentFile().mkdirs();
     }
 
     for (JSModule module : modules) {
@@ -429,7 +429,7 @@ public final class Compilation {
       if (sourceMapPath != null) {
         String sourceMapFileName = config.getSourceMapOutputName().replace("%s", moduleName);
         Writer writer = Streams.createFileWriter(
-            new File(sourceMapPath, sourceMapFileName).getPath(), config);
+            new File(sourceMapPath).getPath(), config);
         // This is safe because getCodeForModule() was just called, which has
         // the side-effect of calling compiler.toSource(module).
         SourceMap sourceMap = compiler.getSourceMap();

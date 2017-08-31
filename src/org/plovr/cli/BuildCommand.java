@@ -112,10 +112,10 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         // it should only be written out to a file after the compiled code has
         // been generated.
         if (sourceMapPath != null) {
-          new File(sourceMapPath).mkdirs();
+            new File(sourceMapPath).getParentFile().mkdirs();
           String sourceMapName = config.getSourceMapOutputName();
           Writer writer = Streams.createFileWriter(
-              new File(sourceMapPath, sourceMapName), config);
+              new File(sourceMapPath), config);
           result.sourceMap.appendTo(writer, sourceMapName);
           Closeables.close(writer, false);
         }
