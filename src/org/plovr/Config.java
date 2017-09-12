@@ -1951,6 +1951,9 @@ public final class Config implements Comparable<Config> {
   }
 
   public boolean shouldEmitUseStrict() {
+    if (languageOut == null) {
+      return false;
+    }
     switch (languageOut) {
       case ECMASCRIPT3:
       case ECMASCRIPT5:
