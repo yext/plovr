@@ -113,6 +113,8 @@ public final class Config implements Comparable<Config> {
 
   private final boolean soyGenerateGoogMsgs;
 
+  private final boolean soyUseIncrementalDom;
+
   private final CompilationMode compilationMode;
 
   private final WarningLevel warningLevel;
@@ -225,6 +227,7 @@ public final class Config implements Comparable<Config> {
       String soyTranslationPlugin,
       String soyProtoFileDescriptors,
       boolean soyGenerateGoogMsgs,
+      boolean soyUseIncrementalDom,
       CompilationMode compilationMode,
       WarningLevel warningLevel,
       boolean debug,
@@ -284,6 +287,7 @@ public final class Config implements Comparable<Config> {
     this.soyTranslationPlugin = soyTranslationPlugin;
     this.soyProtoFileDescriptors = soyProtoFileDescriptors;
     this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
+    this.soyUseIncrementalDom = soyUseIncrementalDom;
     this.compilationMode = compilationMode;
     this.warningLevel = warningLevel;
     this.debug = debug;
@@ -1089,6 +1093,8 @@ public final class Config implements Comparable<Config> {
 
     private boolean soyGenerateGoogMsgs = false;
 
+    private boolean soyUseIncrementalDom = false;
+
     private ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses = ImmutableListMultimap.of();
 
     private ImmutableList.Builder<WarningsGuardFactory> customWarningsGuards = ImmutableList.builder();
@@ -1469,6 +1475,10 @@ public final class Config implements Comparable<Config> {
       this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
     }
 
+    public void setSoyUseIncrementalDom(boolean soyUseIncrementalDom) {
+      this.soyUseIncrementalDom = soyUseIncrementalDom;
+    }
+
     public void setCustomPasses(
         ListMultimap<CustomPassExecutionTime, CompilerPassFactory> customPasses) {
       this.customPasses = ImmutableListMultimap.copyOf(customPasses);
@@ -1797,6 +1807,7 @@ public final class Config implements Comparable<Config> {
             .setProtoFileDescriptors(this.soyProtoFileDescriptors)
             .setMsgBundle(getSoyMsgBundle())
             .setGenerateGoogMsgs(this.soyGenerateGoogMsgs)
+            .setUseIncrementalDom(this.soyUseIncrementalDom)
             .build();
 
         manifest = new Manifest(
@@ -1824,6 +1835,7 @@ public final class Config implements Comparable<Config> {
           soyTranslationPlugin,
           this.soyProtoFileDescriptors,
           this.soyGenerateGoogMsgs,
+          this.soyUseIncrementalDom,
           compilationMode,
           warningLevel,
           debug,
