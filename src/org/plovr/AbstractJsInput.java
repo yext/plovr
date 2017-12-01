@@ -21,11 +21,11 @@ public abstract class AbstractJsInput implements JsInput {
 
   /**
    * This should match the _BASE_REGEX_STRING defined in
-   * http://code.google.com/p/closure-library/source/browse/trunk/closure/bin/build/source.py
+   * https://github.com/google/closure-library/blob/master/closure/bin/build/source.py
    * to ensure consistency with closurebuilder.py.
    */
   private static final Pattern GOOG_PROVIDE_OR_REQUIRE =
-      Pattern.compile("\\s*goog\\.(provide|require)\\(\\s*['\"]([\\w\\.]+)['\"]\\s*\\);?.*");
+      Pattern.compile("\\s*goog\\.(provide|require|module)\\(\\s*['\"]([\\w\\.]+)['\"]\\s*\\);?.*");
 
   private final String name;
 
@@ -134,7 +134,7 @@ public abstract class AbstractJsInput implements JsInput {
       if (matcher.matches()) {
         String type = matcher.group(1);
         String namespace = matcher.group(2);
-        (("provide".equals(type)) ? provides : requires).add(namespace);
+        (("require".equals(type)) ? requires : provides).add(namespace);
       }
     }
     this.provides = ImmutableList.copyOf(provides);

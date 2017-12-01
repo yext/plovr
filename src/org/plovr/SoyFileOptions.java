@@ -20,38 +20,42 @@ final class SoyFileOptions {
   final String protoFileDescriptors;
   final SoyMsgBundle msgBundle;
   final boolean soyGenerateGoogMsgs;
+  final boolean useIncrementalDom;
 
   public SoyFileOptions() {
     this(ImmutableList.<String>of(), /* pluginModuleNames */
         true, /* useClosureLibrary */
          "", /* protoFileDescriptors */
         null, /* msgBundle */
-        false); /* soyGenerateGoogMsgs */
+        false, /* soyGenerateGoogMsgs */
+        false); /* useIncrementalDom */
   }
 
   public SoyFileOptions(List<String> pluginModuleNames,
       boolean useClosureLibrary,
       String protoFileDescriptors) {
-    this(pluginModuleNames, useClosureLibrary, protoFileDescriptors, null, false);
+    this(pluginModuleNames, useClosureLibrary, protoFileDescriptors, null, false, false);
   }
 
   private SoyFileOptions(List<String> pluginModuleNames,
       boolean useClosureLibrary,
       String protoFileDescriptors,
       SoyMsgBundle msgBundle,
-      boolean soyGenerateGoogMsgs) {
+      boolean soyGenerateGoogMsgs,
+      boolean useIncrementalDom) {
     Preconditions.checkNotNull(pluginModuleNames);
     this.pluginModuleNames = ImmutableList.copyOf(pluginModuleNames);
     this.useClosureLibrary = useClosureLibrary;
     this.protoFileDescriptors = protoFileDescriptors;;
     this.msgBundle = msgBundle;
     this.soyGenerateGoogMsgs = soyGenerateGoogMsgs;
+    this.useIncrementalDom = useIncrementalDom;
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(
-        pluginModuleNames, useClosureLibrary, protoFileDescriptors, msgBundle, soyGenerateGoogMsgs);
+        pluginModuleNames, useClosureLibrary, protoFileDescriptors, msgBundle, soyGenerateGoogMsgs, useIncrementalDom);
   }
 
   @Override
@@ -67,7 +71,8 @@ final class SoyFileOptions {
         Objects.equal(this.useClosureLibrary, that.useClosureLibrary) &&
         Objects.equal(this.protoFileDescriptors, that.protoFileDescriptors) &&
         Objects.equal(this.msgBundle, that.msgBundle) &&
-        Objects.equal(this.soyGenerateGoogMsgs, that.soyGenerateGoogMsgs);
+        Objects.equal(this.soyGenerateGoogMsgs, that.soyGenerateGoogMsgs) &&
+        Objects.equal(this.useIncrementalDom, that.useIncrementalDom);
   }
 
   public static class Builder {
@@ -76,6 +81,7 @@ final class SoyFileOptions {
     String protoFileDescriptors = "";
     SoyMsgBundle msgBundle = null;
     boolean generateGoogMsgs = false;
+    boolean useIncrementalDom = false;
 
     public Builder setPluginModuleNames(List<String> values) {
       pluginModuleNames = values;
@@ -102,13 +108,19 @@ final class SoyFileOptions {
       return this;
     }
 
+    public Builder setUseIncrementalDom(boolean value) {
+      useIncrementalDom = value;
+      return this;
+    }
+
     public SoyFileOptions build() {
       return new SoyFileOptions(
           pluginModuleNames,
           useClosureLibrary,
           protoFileDescriptors,
           msgBundle,
-          generateGoogMsgs);
+          generateGoogMsgs,
+          useIncrementalDom);
     }
   }
 }

@@ -26,6 +26,7 @@ public class SoyFileOptionsTest {
     assertFalse(options.useClosureLibrary);
     assertEquals("/tmp", options.protoFileDescriptors);
     assertFalse(options.soyGenerateGoogMsgs);
+    assertFalse(options.useIncrementalDom);
     assertEquals(ImmutableList.of("one", "two"), options.pluginModuleNames);
   }
 

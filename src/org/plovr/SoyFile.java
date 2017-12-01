@@ -18,6 +18,7 @@ import com.google.template.soy.SoyModule;
 import com.google.template.soy.base.SoySyntaxException;
 import com.google.template.soy.internal.i18n.BidiGlobalDir;
 import com.google.template.soy.jssrc.SoyJsSrcOptions;
+import com.google.template.soy.incrementaldomsrc.SoyIncrementalDomSrcOptions;
 import com.google.template.soy.msgs.SoyMsgBundle;
 
 /**
@@ -36,12 +37,14 @@ public class SoyFile extends LocalFileJsInput {
 
   private final SoyJsSrcOptions jsSrcOptions;
   private final SoyMsgBundle msgBundle;
+  private final boolean useIncrementalDom;
 
   SoyFile(String name, File source, SoyFileOptions soyFileOptions) {
     super(name, source);
     this.injector = createInjector(soyFileOptions.pluginModuleNames);
     this.jsSrcOptions = get(soyFileOptions);
     this.msgBundle = soyFileOptions.msgBundle;
+    this.useIncrementalDom = soyFileOptions.useIncrementalDom;
   }
 
   private static SoyJsSrcOptions get(SoyFileOptions options) {
@@ -71,7 +74,12 @@ public class SoyFile extends LocalFileJsInput {
     builder.add(getSource());
     SoyFileSet fileSet = builder.build();
     try {
-      String code = fileSet.compileToJsSrc(jsSrcOptions, msgBundle).get(0);
+      String code;
+      if (useIncrementalDom) {
+        code = fileSet.compileToIncrementalDomSrc(new SoyIncrementalDomSrcOptions()).get(0);
+      } else {
+        code = fileSet.compileToJsSrc(jsSrcOptions, msgBundle).get(0);
+      }
       logger.fine(code);
       return code;
     } catch (SoySyntaxException e) {
