@@ -40,6 +40,17 @@ public class AbstractJsInputTest {
   }
 
   @Test
+  public void testJsModuleParsing() {
+      AbstractJsInput jsInputWithModules = new DummyAbstractJsInput("dummy.js",
+          "goog.module('example.test.Control'); // trailing comment\n" +
+          "var config = goog.require('example.test.Config'); // trailing comment\n");
+      assertEquals("Call to goog.module() works",
+          ImmutableList.of("example.test.Control"), jsInputWithModules.getProvides());
+      assertEquals("Call to goog.require() with var before works",
+          ImmutableList.of("example.test.Config"), jsInputWithModules.getRequires());
+  }
+
+  @Test
   public void testWindowsLineEndings() {
     AbstractJsInput jsInputWithWindowsLineEndings = new DummyAbstractJsInput("dummy.js",
         "goog.provide('example.test.Control');\r\n" +
