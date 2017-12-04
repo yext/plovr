@@ -3,13 +3,14 @@ package org.plovr;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.logging.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.io.LineReader;
+import com.google.javascript.jscomp.LoggerErrorManager;
+import com.google.javascript.jscomp.deps.DependencyInfo;
+import com.google.javascript.jscomp.deps.JsFileParser;
 
 /**
  * {@link AbstractJsInput} provides the default logic for extracting
@@ -19,13 +20,8 @@ import com.google.common.io.LineReader;
  */
 public abstract class AbstractJsInput implements JsInput {
 
-  /**
-   * This should match the _BASE_REGEX_STRING defined in
-   * https://github.com/google/closure-library/blob/master/closure/bin/build/source.py
-   * to ensure consistency with closurebuilder.py.
-   */
-  private static final Pattern GOOG_PROVIDE_OR_REQUIRE =
-      Pattern.compile("\\s*goog\\.(provide|require|module)\\(\\s*['\"]([\\w\\.]+)['\"]\\s*\\);?.*");
+  private static final JsFileParser FILE_PARSER =
+      new JsFileParser(new LoggerErrorManager(Logger.getAnonymousLogger()));
 
   private final String name;
 
@@ -125,20 +121,11 @@ public abstract class AbstractJsInput implements JsInput {
 
     code = generateCode();
 
-    List<String> provides = Lists.newArrayList();
-    List<String> requires = Lists.newArrayList();
+    DependencyInfo dependencyInfo = FILE_PARSER.parseFile("", "", code);
     StringLineReader lineReader = new StringLineReader(code);
-    String line;
-    while ((line = lineReader.readLine()) != null) {
-      Matcher matcher = GOOG_PROVIDE_OR_REQUIRE.matcher(line);
-      if (matcher.matches()) {
-        String type = matcher.group(1);
-        String namespace = matcher.group(2);
-        (("require".equals(type)) ? requires : provides).add(namespace);
-      }
-    }
-    this.provides = ImmutableList.copyOf(provides);
-    this.requires = ImmutableList.copyOf(requires);
+
+    this.provides = ImmutableList.copyOf(dependencyInfo.getProvides());
+    this.requires = ImmutableList.copyOf(dependencyInfo.getRequires());
   }
 
   /**
