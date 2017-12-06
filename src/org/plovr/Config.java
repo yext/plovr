@@ -1893,7 +1893,7 @@ public final class Config implements Comparable<Config> {
         File file = pair.getFirst();
         String name = pair.getSecond();
 
-        jsInputs.add(
+        jsInputs.addAll(
             LocalFileJsInput.createForFileWithName(file, name, soyFileOptions));
       }
 

@@ -39,12 +39,12 @@ public class SoyFile extends LocalFileJsInput {
   private final SoyMsgBundle msgBundle;
   private final boolean useIncrementalDom;
 
-  SoyFile(String name, File source, SoyFileOptions soyFileOptions) {
+  SoyFile(String name, File source, SoyFileOptions soyFileOptions, boolean useIncrementalDom) {
     super(name, source);
     this.injector = createInjector(soyFileOptions.pluginModuleNames);
     this.jsSrcOptions = get(soyFileOptions);
     this.msgBundle = soyFileOptions.msgBundle;
-    this.useIncrementalDom = soyFileOptions.useIncrementalDom;
+    this.useIncrementalDom = useIncrementalDom;
   }
 
   private static SoyJsSrcOptions get(SoyFileOptions options) {
@@ -88,6 +88,14 @@ public class SoyFile extends LocalFileJsInput {
   }
 
   @Override
+  public String getName() {
+    if (useIncrementalDom) {
+      return super.getName() + ".incrementaldom";
+    }
+    return super.getName();
+  }
+
+  @Override
   public boolean isSoyFile() {
     return true;
   }
@@ -118,5 +126,13 @@ public class SoyFile extends LocalFileJsInput {
     }
 
     return Guice.createInjector(guiceModules);
+  }
+
+  @Override
+  public String getCanonicalPath() {
+    if (useIncrementalDom) {
+      return super.getCanonicalPath() + ".incrementaldom";
+    }
+    return super.getCanonicalPath();
   }
 }

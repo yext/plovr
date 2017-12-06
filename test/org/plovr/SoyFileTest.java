@@ -20,7 +20,7 @@ public class SoyFileTest {
     File file = new File("testdata/example/templates.soy");
     SoyFileOptions options = new SoyFileOptions.Builder()
         .build();
-    SoyFile soyFile = new SoyFile("templates.soy", file, options);
+    SoyFile soyFile = new SoyFile("templates.soy", file, options, false);
     String code = soyFile.generateCode();
     assertTrue(code.indexOf("example.templates.base") != -1);
     assertTrue(code.indexOf("The meaning of life is") != -1);
@@ -54,7 +54,7 @@ public class SoyFileTest {
     SoyFileOptions options = new SoyFileOptions.Builder()
         .setMsgBundle(bundle)
         .build();
-    SoyFile soyFile = new SoyFile("templates.soy", file, options);
+    SoyFile soyFile = new SoyFile("templates.soy", file, options, false);
     String code = soyFile.generateCode();
     assertTrue(code.indexOf("The meaning of life is") == -1);
     assertTrue(code.indexOf("translated part") != -1);

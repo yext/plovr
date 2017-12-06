@@ -439,10 +439,13 @@ public final class Manifest {
           }
           name = rootOfSearch.getName() + name;
         }
-        JsInput input = LocalFileJsInput.createForFileWithName(file, name,
-            soyFileOptions);
+        List<JsInput> input = LocalFileJsInput.createForFileWithName(
+            file,
+            name,
+            soyFileOptions
+        );
         logger.config("Dependency: " + input);
-        output.add(input);
+        output.addAll(input);
       }
     } else if (file.isDirectory()) {
       logger.config("Directory to explore: " + file);

@@ -2,19 +2,18 @@ package org.plovr;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Map;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.plovr.util.Pair;
+import com.google.common.collect.ImmutableList;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.Maps;
 
 /**
  * {@link LocalFileJsInput} represents a JavaScript input to the Closure
@@ -31,25 +30,34 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
 
   private long lastModified;
 
-  private static final CacheLoader<Key, JsInput> fileLoader =
-      new CacheLoader<Key, JsInput>() {
-    public JsInput load(Key key) {
+  private static final CacheLoader<Key, List<JsInput>> fileLoader =
+      new CacheLoader<Key, List<JsInput>>() {
+    public List<JsInput> load(Key key) {
       File file = key.file;
       String name = key.name;
       String fileName = file.getName();
       if (fileName.endsWith(".soy")) {
-        return new SoyFile(name, file, key.soyFileOptions);
+        if (key.soyFileOptions.useIncrementalDom) {
+          return ImmutableList.of(
+              new SoyFile(name, file, key.soyFileOptions, false),
+              new SoyFile(name, file, key.soyFileOptions, true)
+          );
+        } else {
+          return ImmutableList.of(
+              new SoyFile(name, file, key.soyFileOptions, false)
+          );
+        }
       } else if (fileName.endsWith(".coffee")) {
-        return new CoffeeFile(name, file);
+        return ImmutableList.of(new CoffeeFile(name, file));
       } else if (fileName.endsWith(".ts")) {
-        return new TypeScriptFile(name, file);
+        return ImmutableList.of(new TypeScriptFile(name, file));
       } else {
-        return new JsSourceFile(name, file);
+        return ImmutableList.of(new JsSourceFile(name, file));
       }
     }
   };
 
-  private static final LoadingCache<Key, JsInput> jsInputCache =
+  private static final LoadingCache<Key, List<JsInput>> jsInputCache =
       CacheBuilder.newBuilder().build(fileLoader);
 
   LocalFileJsInput(String name, File source) {
@@ -91,7 +99,7 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
     }
   }
 
-  static JsInput createForFileWithName(File file, String name,
+  static List<JsInput> createForFileWithName(File file, String name,
       SoyFileOptions soyFileOptions) {
     try {
       return jsInputCache.get(new Key(file, name, soyFileOptions));
@@ -121,7 +129,7 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
    * are resolved.
    * @return
    */
-  private String getCanonicalPath() {
+  protected String getCanonicalPath() {
     try {
       return source.getCanonicalPath();
     } catch (IOException e) {
