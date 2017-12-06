@@ -5,6 +5,7 @@ import java.util.logging.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.ErrorManager;
 import com.google.javascript.jscomp.LoggerErrorManager;
 import com.google.javascript.jscomp.deps.DependencyInfo;
 import com.google.javascript.jscomp.deps.JsFileParser;
@@ -17,8 +18,7 @@ import com.google.javascript.jscomp.deps.JsFileParser;
  */
 public abstract class AbstractJsInput implements JsInput {
 
-  private static final JsFileParser FILE_PARSER =
-      new JsFileParser(new LoggerErrorManager(Logger.getAnonymousLogger()));
+  private static final Logger logger = Logger.getLogger(AbstractJsInput.class.getName());
 
   private final String name;
 
@@ -118,7 +118,9 @@ public abstract class AbstractJsInput implements JsInput {
 
     code = generateCode();
 
-    DependencyInfo dependencyInfo = FILE_PARSER.parseFile(name, name, code);
+    ErrorManager errorManager = new LoggerErrorManager(logger);
+    JsFileParser parser = new JsFileParser(errorManager);
+    DependencyInfo dependencyInfo = parser.parseFile("<unknown path>", "<unknown path>", code);
 
     this.provides = ImmutableList.copyOf(dependencyInfo.getProvides());
     this.requires = ImmutableList.copyOf(dependencyInfo.getRequires());
