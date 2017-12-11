@@ -8,6 +8,7 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.google.common.collect.Iterables;
 import org.plovr.io.Responses;
 
 import com.google.common.base.Charsets;
@@ -110,8 +111,9 @@ public class TestHandler extends AbstractGetHandler {
     }
 
     // Get the requires that we need.
-    JsInput testJsInput = LocalFileJsInput.createForFileWithName(
-        jsFile, jsFileName, null);
+    JsInput testJsInput = Iterables.getOnlyElement(
+        LocalFileJsInput.createForFileWithName(jsFile, jsFileName, null)
+    );
 
     // Instead of loading base.js and the uncompiled test file, consider
     // creating a plovr config for each test file so that it is easier to run
