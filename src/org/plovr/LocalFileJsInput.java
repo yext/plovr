@@ -38,10 +38,16 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
       String fileName = file.getName();
       if (fileName.endsWith(".soy")) {
         if (key.soyFileOptions.useIncrementalDom) {
-          return ImmutableList.of(
-              new SoyFile(name, file, key.soyFileOptions, false),
-              new SoyFile(name, file, key.soyFileOptions, true)
-          );
+          if (key.soyFileOptions.disableNonIncrementalDom) {
+            return ImmutableList.of(
+                    new SoyFile(name, file, key.soyFileOptions, true)
+            );
+          } else {
+            return ImmutableList.of(
+                    new SoyFile(name, file, key.soyFileOptions, false),
+                    new SoyFile(name, file, key.soyFileOptions, true)
+            );
+          }
         } else {
           return ImmutableList.of(
               new SoyFile(name, file, key.soyFileOptions, false)

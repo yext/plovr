@@ -680,6 +680,13 @@ public enum ConfigOption {
     }
   }),
 
+  SOY_DISABLE_NON_INCREMENTAL_DOM("soy-disable-non-incremental-dom", new ConfigUpdater() {
+    @Override
+    public void apply(boolean soyDisableNonIncrementalDom, Config.Builder builder) {
+      builder.setSoyDisableNonIncrementalDom(soyDisableNonIncrementalDom);
+    }
+  }),
+
   JSDOC_HTML_OUTPUT_PATH("jsdoc-html-output-path", new ConfigUpdater() {
     @Override
     public void apply(String jsDocHtmlOutputPath, Config.Builder builder) {
