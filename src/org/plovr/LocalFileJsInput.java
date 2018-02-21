@@ -57,6 +57,8 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
         return ImmutableList.of(new CoffeeFile(name, file));
       } else if (fileName.endsWith(".ts")) {
         return ImmutableList.of(new TypeScriptFile(name, file));
+      } else if (fileName.endsWith(".jsx")) {
+        return ImmutableList.of(new JsxFile(name, file));
       } else {
         return ImmutableList.of(new JsSourceFile(name, file));
       }
