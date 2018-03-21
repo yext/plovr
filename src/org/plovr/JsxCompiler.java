@@ -25,7 +25,7 @@ public class JsxCompiler
   @Override
   protected String insertScopeVariablesAndGenerateExecutableJavaScript(Bindings compileScope, String sourceCode, String sourceName) {
     compileScope.put("input", sourceCode);
-    return "Babel.transform(input, {presets: ['react']}).code";
+    return "Babel.transform(input, {presets: ['react'], plugins: [['transform-react-jsx', {useBuiltIns: true}]]}).code";
   }
 
   private static class JsxCompilerHolder {
