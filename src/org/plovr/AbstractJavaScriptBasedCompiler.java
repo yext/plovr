@@ -22,8 +22,8 @@ import com.google.common.io.Resources;
  */
 abstract class AbstractJavaScriptBasedCompiler<T extends Exception> {
 
-  /** Scope that has the compiler in memory. */
-  private final Bindings globalScope;
+  /** ScriptEngine that has the compiler in memory. */
+  private final ScriptEngine engine;
 
   /**
    * @param pathToCompiler should be a path that can be loaded via
@@ -38,7 +38,7 @@ abstract class AbstractJavaScriptBasedCompiler<T extends Exception> {
         ScriptEngineManager factory = new ScriptEngineManager();
         ScriptEngine engine = factory.getEngineByName("JavaScript");
         engine.eval(compilerJs);
-        globalScope = engine.getBindings(ScriptContext.ENGINE_SCOPE);
+        this.engine = engine;
       } catch (ScriptException e) {
         throw new RuntimeException(e); // This should never happen
       }
@@ -56,10 +56,6 @@ abstract class AbstractJavaScriptBasedCompiler<T extends Exception> {
       String sourceName) throws T {
 
     try {
-      ScriptEngineManager factory = new ScriptEngineManager();
-      ScriptEngine engine = factory.getEngineByName("JavaScript");
-      engine.setBindings(globalScope, ScriptContext.GLOBAL_SCOPE);
-
       Bindings localBindings = engine.getBindings(ScriptContext.ENGINE_SCOPE);
       String js = insertScopeVariablesAndGenerateExecutableJavaScript(
           localBindings, sourceCode, sourceName);
