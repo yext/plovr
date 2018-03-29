@@ -73,8 +73,14 @@ public class TestHandler extends AbstractGetHandler {
       // Serve the test code, if it exists.
       File testJsFile = config.getTestFile(name);
       if (testJsFile != null) {
-        String js = Files.toString(testJsFile, Charsets.UTF_8);
-        Responses.writeJs(js, config, exchange);
+        JsInput testJsInput = Iterables.getOnlyElement(
+            LocalFileJsInput.createForFileWithName(testJsFile, name, null)
+        );
+        String code = testJsInput.getCode();
+        if (testJsInput.isModule()) {
+          code = JsInput.wrapModuleCode(code);
+        }
+        Responses.writeJs(code, config, exchange);
         return;
       }
     } else if (name.endsWith("_test.html")) {
@@ -198,7 +204,7 @@ public class TestHandler extends AbstractGetHandler {
           continue;
         }
 
-        if (entry.getName().endsWith("_test.js")) {
+        if (entry.getName().endsWith("_test.js") || entry.getName().endsWith("_test.jsx")) {
           // This path substitution is to fix an issue where these paths were
           // not working on Windows:
           // http://code.google.com/p/plovr/issues/detail?id=64
@@ -211,7 +217,7 @@ public class TestHandler extends AbstractGetHandler {
             relativePath = relativePath.substring(1);
           }
           // Unlike replace(), replaceFirst() takes a regex.
-          relativePath = relativePath.replaceFirst("_test\\.js$", "_test.html");
+          relativePath = relativePath.replaceFirst("_test\\.jsx?$", "_test.html");
           testFilePaths.add(relativePath);
         }
       }

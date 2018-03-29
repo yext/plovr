@@ -71,6 +71,18 @@ public interface JsInput extends Generator {
    */
   public long getLastModified();
 
+  default boolean isModule() {
+    return false;
+  }
+
+  static String wrapModuleCode(String code) {
+    return "goog.loadModule(function(exports) {\n" +
+        "\"use strict\";\n\n" +
+        code +
+        "\n\nreturn exports;\n" +
+        "});\n";
+  }
+
   static final class CodeWithEtag {
     public final String code;
     public final String eTag;

@@ -234,6 +234,10 @@ public class InputFileHandler extends AbstractGetHandler {
       return;
     }
 
+    if (requestedInput.isModule()) {
+      code = JsInput.wrapModuleCode(code);
+    }
+
     Responses.writeJs(code, config, exchange);
   }
 

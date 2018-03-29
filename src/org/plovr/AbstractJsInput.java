@@ -25,6 +25,7 @@ public abstract class AbstractJsInput implements JsInput {
   private String code;
   private List<String> provides;
   private List<String> requires;
+  private boolean isModule;
 
   AbstractJsInput(String name) {
     this.name = name;
@@ -97,6 +98,12 @@ public abstract class AbstractJsInput implements JsInput {
     return Preconditions.checkNotNull(requires, getName());
   }
 
+  @Override
+  public boolean isModule() {
+    cacheExpensiveValuesIfNecessary();
+    return isModule;
+  }
+
   protected boolean hasInputChanged() {
     return false;
   }
@@ -124,6 +131,7 @@ public abstract class AbstractJsInput implements JsInput {
 
     this.provides = ImmutableList.copyOf(dependencyInfo.getProvides());
     this.requires = ImmutableList.copyOf(dependencyInfo.getRequires());
+    this.isModule = dependencyInfo.isModule();
   }
 
   @Override
