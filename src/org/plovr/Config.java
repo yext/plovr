@@ -1289,6 +1289,7 @@ public final class Config implements Comparable<Config> {
       this.language = config.language;
       this.cssOutputFormat = config.cssOutputFormat;
       this.errorStream = config.errorStream;
+      this.locationMappings = config.locationMappings;
     }
 
     /** Directory against which relative paths should be resolved. */
