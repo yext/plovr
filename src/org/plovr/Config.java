@@ -209,7 +209,7 @@ public final class Config implements Comparable<Config> {
 
   private final PrintStream errorStream;
 
-  private final List<LocationMapping> locationMappings;
+  private final JsonObject locationMappings;
 
   /**
    * @param id Unique identifier for the configuration. This is used as an
@@ -274,7 +274,7 @@ public final class Config implements Comparable<Config> {
       File cssOutputFile,
       JobDescription.OutputFormat cssOutputFormat,
       PrintStream errorStream,
-      List<LocationMapping> locationMappings,
+      JsonObject locationMappings,
       File translationsDirectory,
       String language) {
     Preconditions.checkNotNull(defines);
@@ -861,7 +861,19 @@ public final class Config implements Comparable<Config> {
     }
 
     // Add location mapping for paths in source map.
-    options.setSourceMapLocationMappings(locationMappings);
+    List<LocationMapping> parsedLocationMappings = Lists.newArrayList();
+    if ( locationMappings != null ) {
+      Set<Map.Entry<String, JsonElement>> entries = locationMappings.entrySet();
+      for (Map.Entry<String, JsonElement> entry : entries) {
+        String prefix = entry.getKey();
+        String replacement = entry.getValue().getAsString();
+        if (id != null) {
+          replacement = replacement.replace("%s", id);
+        }
+        parsedLocationMappings.add(new LocationMapping(prefix, replacement));
+      }
+    }
+    options.setSourceMapLocationMappings(parsedLocationMappings);
 
     if (getTreatWarningsAsErrors()) {
       options.addWarningsGuard(new StrictWarningsGuard());
@@ -1195,7 +1207,7 @@ public final class Config implements Comparable<Config> {
 
     private PrintStream errorStream = System.err;
 
-    private List<LocationMapping> locationMappings = Lists.newArrayList();
+    private JsonObject locationMappings = null;
 
     /**
      * Pattern to validate a config id. A config id may not contain funny
@@ -1289,6 +1301,7 @@ public final class Config implements Comparable<Config> {
       this.language = config.language;
       this.cssOutputFormat = config.cssOutputFormat;
       this.errorStream = config.errorStream;
+      this.locationMappings = config.locationMappings;
     }
 
     /** Directory against which relative paths should be resolved. */
@@ -1571,15 +1584,7 @@ public final class Config implements Comparable<Config> {
     }
 
     public void setLocationMappings(JsonObject locationMappings) {
-      if ( locationMappings != null ) {
-        Set<Map.Entry<String, JsonElement>> entries = locationMappings.entrySet();
-        for (Map.Entry<String, JsonElement> entry : entries) {
-          String prefix = entry.getKey();
-          String replacement = entry.getValue().getAsString();
-          replacement = replacement.replace("%s", id);
-          this.locationMappings.add(new LocationMapping(prefix, replacement));
-        }
-      }
+      this.locationMappings = locationMappings;
     }
 
     /**
