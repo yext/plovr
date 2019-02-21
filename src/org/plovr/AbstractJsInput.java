@@ -127,7 +127,7 @@ public abstract class AbstractJsInput implements JsInput {
 
     ErrorManager errorManager = new LoggerErrorManager(logger);
     JsFileParser parser = new JsFileParser(errorManager);
-    DependencyInfo dependencyInfo = parser.parseFile("<unknown path>", "<unknown path>", code);
+    DependencyInfo dependencyInfo = parser.parseFile(name, name, code);
 
     this.provides = ImmutableList.copyOf(dependencyInfo.getProvides());
     this.requires = ImmutableList.copyOf(dependencyInfo.getRequires());
