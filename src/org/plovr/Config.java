@@ -32,6 +32,7 @@ import com.google.javascript.jscomp.CustomPassExecutionTime;
 import com.google.javascript.jscomp.DiagnosticGroup;
 import com.google.javascript.jscomp.PlovrCompilerOptions;
 import com.google.javascript.jscomp.SourceMap.LocationMapping;
+import com.google.javascript.jscomp.SourceMap.PrefixLocationMapping;
 import com.google.javascript.jscomp.StrictWarningsGuard;
 import com.google.javascript.jscomp.VariableMap;
 import com.google.javascript.jscomp.WarningLevel;
@@ -795,8 +796,8 @@ public final class Config implements Comparable<Config> {
     }
 
     if (moduleConfig != null) {
-      options.crossModuleCodeMotion = true;
-      options.crossModuleMethodMotion = true;
+      options.setCrossChunkCodeMotion(true);
+      options.setCrossChunkMethodMotion(true);
     }
 
     if (!Strings.isNullOrEmpty(globalScopeName)) {
@@ -870,7 +871,7 @@ public final class Config implements Comparable<Config> {
         if (id != null) {
           replacement = replacement.replace("%s", id);
         }
-        parsedLocationMappings.add(new LocationMapping(prefix, replacement));
+        parsedLocationMappings.add(new PrefixLocationMapping(prefix, replacement));
       }
     }
     options.setSourceMapLocationMappings(parsedLocationMappings);

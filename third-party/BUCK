@@ -199,9 +199,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.guava-guava-jar',
-  out = 'com.google.guava-guava-jar-20.0.jar',
-  url = 'mvn:com.google.guava:guava:jar:20.0',
-  sha1 = '89507701249388e1ed5ddcf8c41f4ce1be7831ef',
+  out = 'com.google.guava-guava-jar-26.0.jar',
+  url = 'mvn:com.google.guava:guava:jar:26.0-jre',
+  sha1 = '6a806eff209f36f635f943e16d97491f00f6bfab',
 )
 
 prebuilt_jar(
@@ -259,9 +259,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.javascript-closure-compiler-jar',
-  out = 'com.google.javascript-closure-compiler-jar-v20170806.jar',
-  url = 'mvn:com.google.javascript:closure-compiler:jar:v20170806',
-  sha1 = '708706764914ee53821d70f24db33c3b40c19812',
+  out = 'com.google.javascript-closure-compiler-jar-v20190121.jar',
+  url = 'mvn:com.google.javascript:closure-compiler:jar:v20190121',
+  sha1 = '78cb63365336fb34253155cf302fe33874a70be5',
 )
 
 prebuilt_jar(
@@ -271,9 +271,9 @@ prebuilt_jar(
 
 remote_file(
   name = 'remote-com.google.javascript-closure-compiler-externs-jar',
-  out = 'com.google.javascript-closure-compiler-externs-jar-v20170806.jar',
-  url = 'mvn:com.google.javascript:closure-compiler-externs:jar:v20170806',
-  sha1 = '167b06d1a35eafeaec667ec40a3f59761d0b0ea2',
+  out = 'com.google.javascript-closure-compiler-externs-jar-v20190121.jar',
+  url = 'mvn:com.google.javascript:closure-compiler-externs:jar:v20190121',
+  sha1 = '1558f377bed236fa9ffabe72aec4809d1434645f',
 )
 
 prebuilt_jar(

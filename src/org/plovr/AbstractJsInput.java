@@ -2,12 +2,14 @@ package org.plovr;
 
 import java.util.List;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.ErrorManager;
 import com.google.javascript.jscomp.LoggerErrorManager;
 import com.google.javascript.jscomp.deps.DependencyInfo;
+import com.google.javascript.jscomp.deps.DependencyInfo.Require;
 import com.google.javascript.jscomp.deps.JsFileParser;
 
 /**
@@ -130,7 +132,7 @@ public abstract class AbstractJsInput implements JsInput {
     DependencyInfo dependencyInfo = parser.parseFile(name, name, code);
 
     this.provides = ImmutableList.copyOf(dependencyInfo.getProvides());
-    this.requires = ImmutableList.copyOf(dependencyInfo.getRequires());
+    this.requires = Require.asSymbolList(dependencyInfo.getRequires());
     this.isModule = dependencyInfo.isModule();
   }
 

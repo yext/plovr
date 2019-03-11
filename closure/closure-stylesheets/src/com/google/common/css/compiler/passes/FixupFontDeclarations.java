@@ -106,6 +106,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
       }
       return true;
     }
+
+    @Override public boolean test(CssCompositeValueNode n) {
+      return apply(n);
+    }
   }
 
   private static WithOperator withOperator(CssCompositeValueNode.Operator op) {
@@ -152,6 +156,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
                   ((CssNumericNode) n).getUnit())))
       || FONT_ABSOLUTE_SIZES.contains(n.getValue())
       || FONT_RELATIVE_SIZES.contains(n.getValue());
+    }
+
+    @Override public boolean test(CssValueNode n) {
+      return apply(n);
     }
   };
 
@@ -324,6 +332,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
               return lexicalOrder.get(n).compareTo(
                   lexicalOrder.get(splitPoint)) < 0;
             }
+
+            @Override public boolean test(CssValueNode n) {
+              return apply(n);
+            }
           });
     final CssPriorityNode priority = getPriority(n);
     Iterable<CssValueNode> families =
@@ -333,6 +345,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
               @Override public boolean apply(CssValueNode n) {
                 return lexicalOrder.get(splitPoint).compareTo(
                     lexicalOrder.get(n)) < 0;
+              }
+
+              @Override public boolean test(CssValueNode n) {
+                return apply(n);
               }
             });
     final Map<CssValueNode, FontProperty> properties =
@@ -363,6 +379,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
         new Predicate<T>() {
           @Override public boolean apply(T i) {
             return excludedEndpoint != i;
+          }
+
+          @Override public boolean test(T i) {
+            return apply(i);
           }
         });
   }
@@ -432,6 +452,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
           @Override public boolean apply(CssCompositeValueNode n) {
             return n.getValues().size() != 2;
           }
+
+          @Override public boolean test(CssCompositeValueNode n) {
+            return apply(n);
+          }
         },
         null);
     if (slashy != null) {
@@ -490,6 +514,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
               new Predicate<CssValueNode>() {
                 @Override public boolean apply(CssValueNode n) {
                   return !classified.containsKey(n) && !normals.contains(n);
+                }
+
+                @Override public boolean test(CssValueNode n) {
+                  return apply(n);
                 }
               },
               null);
@@ -625,6 +653,10 @@ public class FixupFontDeclarations extends DefaultTreeVisitor
     n = Iterables.find(n.ancestors(), new Predicate<CssNode>() {
         @Override public boolean apply(CssNode n) {
           return n.getSourceCodeLocation() != null;
+        }
+
+        @Override public boolean test(CssNode n) {
+          return apply(n);
         }
       }, null);
     return n != null

@@ -1460,7 +1460,7 @@ public class GssFunctions {
 
   private static Size parseSize(String sizeWithUnits, boolean isUnitOptional)
       throws GssFunctionException {
-    int unitIndex = CharMatcher.JAVA_LETTER.indexIn(sizeWithUnits);
+    int unitIndex = CharMatcher.javaLetter().indexIn(sizeWithUnits);
     String size = unitIndex > 0 ?
         sizeWithUnits.substring(0, unitIndex) : sizeWithUnits;
     String units = unitIndex > 0 ?
