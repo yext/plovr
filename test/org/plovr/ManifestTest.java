@@ -56,7 +56,7 @@ public class ManifestTest {
 
     String path = "test/org/plovr/example.js";
     File testFile = new File(path);
-    JsSourceFile requiredInput = new JsSourceFile(path, testFile);
+    JsSourceFile requiredInput = new JsSourceFile(path, testFile, null);
 
     final List<File> externs = ImmutableList.of();
     final boolean customExternsOnly = false;

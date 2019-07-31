@@ -919,6 +919,15 @@ public enum ConfigOption {
     }
   }),
 
+  ES6_IMPORT_ROOT("es6_import_root", new ConfigUpdater() {
+    @Override
+    public void apply(String dir, Config.Builder builder) {
+      File df = (dir == null) ? null :
+          new File(maybeResolvePath(dir, builder));
+      builder.setES6ImportRootDirectory(df.getAbsoluteFile());
+    }
+  }),
+
   TRANSLATIONS("translations", new ConfigUpdater() {
     @Override
     public void apply(String translations, Config.Builder builder) {

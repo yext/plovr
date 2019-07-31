@@ -2,10 +2,14 @@ package org.plovr;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.FileSystems;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.google.common.collect.ImmutableList;
 
@@ -30,12 +34,15 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
 
   private long lastModified;
 
+  protected File es6ImportRootDirectory;
+
   private static final CacheLoader<Key, List<JsInput>> fileLoader =
       new CacheLoader<Key, List<JsInput>>() {
     public List<JsInput> load(Key key) {
       File file = key.file;
       String name = key.name;
       String fileName = file.getName();
+      File es6ImportRootDirectory = key.es6ImportRootDirectory;
       if (fileName.endsWith(".soy")) {
         if (key.soyFileOptions.useIncrementalDom) {
           if (key.soyFileOptions.disableNonIncrementalDom) {
@@ -58,9 +65,9 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
       } else if (fileName.endsWith(".ts")) {
         return ImmutableList.of(new TypeScriptFile(name, file));
       } else if (fileName.endsWith(".jsx")) {
-        return ImmutableList.of(new JsxFile(name, file));
+        return ImmutableList.of(new JsxFile(name, file, es6ImportRootDirectory));
       } else {
-        return ImmutableList.of(new JsSourceFile(name, file));
+        return ImmutableList.of(new JsSourceFile(name, file, es6ImportRootDirectory));
       }
     }
   };
@@ -69,6 +76,10 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
       CacheBuilder.newBuilder().build(fileLoader);
 
   LocalFileJsInput(String name, File source) {
+    this(name, source, null);
+  }
+
+  LocalFileJsInput(String name, File source, File es6ImportRootDirectory) {
     super(name);
 
     // TODO(bolinfest): Use java.nio to listen for updates to the underlying
@@ -77,22 +88,26 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
     this.source = source;
 
     this.lastModified = source.lastModified();
+
+    this.es6ImportRootDirectory = es6ImportRootDirectory;
   }
 
   private static final class Key {
     private final File file;
     private final String name;
     private final SoyFileOptions soyFileOptions;
+    private final File es6ImportRootDirectory;
 
-    Key(File file, String name, SoyFileOptions soyFileOptions) {
+    Key(File file, String name, SoyFileOptions soyFileOptions, File es6ImportRootDirectory) {
       this.file = file;
       this.name = name;
       this.soyFileOptions = soyFileOptions;
+      this.es6ImportRootDirectory = es6ImportRootDirectory;
     }
 
     @Override
     public int hashCode() {
-      return Objects.hashCode(file, name, soyFileOptions);
+      return Objects.hashCode(file, name, soyFileOptions, es6ImportRootDirectory);
     }
 
     @Override
@@ -103,14 +118,15 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
       Key that = (Key) obj;
       return Objects.equal(this.file, that.file) &&
           Objects.equal(this.name, that.name) &&
-          Objects.equal(this.soyFileOptions, that.soyFileOptions);
+          Objects.equal(this.soyFileOptions, that.soyFileOptions) &&
+          Objects.equal(this.es6ImportRootDirectory, that.es6ImportRootDirectory);
     }
   }
 
   static List<JsInput> createForFileWithName(File file, String name,
-      SoyFileOptions soyFileOptions) {
+      SoyFileOptions soyFileOptions, File es6ImportRootDirectory) {
     try {
-      return jsInputCache.get(new Key(file, name, soyFileOptions));
+      return jsInputCache.get(new Key(file, name, soyFileOptions, es6ImportRootDirectory));
     } catch (ExecutionException e) {
       throw Throwables.propagate(e);
     }
@@ -169,4 +185,25 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
     return source.lastModified();
   }
 
+  private static final Pattern ES6_IMPORT =
+    Pattern.compile("(?m)^import (?:[^;]*? from )['\"](/[^'\"]+)['\"];");
+
+  protected String replaceJsxImports(Path sourcePath, String source) {
+    if (es6ImportRootDirectory == null) {
+      return source;
+    }
+
+    Matcher m = ES6_IMPORT.matcher(source);
+    while (m.find()) {
+      String importFilename = m.group(1);  // e.g. /js-spruce/yext/entitiesstorm/utils.js
+      Path importPath = new File(es6ImportRootDirectory, importFilename.substring(1)).toPath();
+      Path relImportPath = sourcePath.getParent().relativize(importPath);
+      String relImportPathStr = relImportPath.toString();
+      if (!relImportPathStr.startsWith(".")) {
+        relImportPathStr = "./" + relImportPathStr;
+      }
+      source = source.replace(importFilename, relImportPathStr);
+    }
+    return source;
+  }
 }

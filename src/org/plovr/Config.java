@@ -203,6 +203,8 @@ public final class Config implements Comparable<Config> {
 
   private final File translationsDirectory;
 
+  private final File es6ImportRootDirectory;
+
   private final String language;
 
   private final JobDescription.OutputFormat cssOutputFormat;
@@ -276,6 +278,7 @@ public final class Config implements Comparable<Config> {
       PrintStream errorStream,
       JsonObject locationMappings,
       File translationsDirectory,
+      File es6ImportRootDirectory,
       String language) {
     Preconditions.checkNotNull(defines);
 
@@ -339,6 +342,7 @@ public final class Config implements Comparable<Config> {
     this.errorStream = Preconditions.checkNotNull(errorStream);
     this.locationMappings = locationMappings;
     this.translationsDirectory = translationsDirectory;
+    this.es6ImportRootDirectory = es6ImportRootDirectory;
     this.language = language;
   }
 
@@ -666,6 +670,10 @@ public final class Config implements Comparable<Config> {
 
   public File getTranslationsDirectory() {
     return translationsDirectory;
+  }
+
+  public File getEs6ImportRootDirectory() {
+    return es6ImportRootDirectory;
   }
 
   public String getLanguage() {
@@ -1201,6 +1209,8 @@ public final class Config implements Comparable<Config> {
 
     private File translationsDirectory = null;
 
+    private File es6ImportRootDirectory = null;
+
     private String language = null;
 
     private JobDescription.OutputFormat cssOutputFormat = JobDescription.OutputFormat.PRETTY_PRINTED;
@@ -1298,6 +1308,7 @@ public final class Config implements Comparable<Config> {
           gssFunctionMapProviderClassName;
       this.cssOutputFile = config.cssOutputFile;
       this.translationsDirectory = config.translationsDirectory;
+      this.es6ImportRootDirectory = config.es6ImportRootDirectory;
       this.language = config.language;
       this.cssOutputFormat = config.cssOutputFormat;
       this.errorStream = config.errorStream;
@@ -1754,6 +1765,10 @@ public final class Config implements Comparable<Config> {
       this.translationsDirectory = translationsDirectory;
     }
 
+    public void setES6ImportRootDirectory(File dir) {
+      this.es6ImportRootDirectory = dir;
+    }
+
     public void setLanguage(String language) {
       this.language = language;
     }
@@ -1830,11 +1845,12 @@ public final class Config implements Comparable<Config> {
             excludeClosureLibrary,
             closureLibraryDirectory,
             paths,
-            createJsInputs(soyFileOptions),
+            createJsInputs(soyFileOptions, es6ImportRootDirectory),
             externs,
             builtInExterns != null ? ImmutableList.copyOf(builtInExterns) : null,
             soyFileOptions,
-            customExternsOnly);
+            customExternsOnly,
+            es6ImportRootDirectory);
       } else {
         manifest = this.manifest;
       }
@@ -1898,12 +1914,13 @@ public final class Config implements Comparable<Config> {
           errorStream,
           locationMappings,
           translationsDirectory,
+          es6ImportRootDirectory,
           language);
 
       return config;
     }
 
-    private List<JsInput> createJsInputs(SoyFileOptions soyFileOptions) {
+    private List<JsInput> createJsInputs(SoyFileOptions soyFileOptions, File es6ImportRootDirectory) {
       ImmutableList<Pair<File, String>> inputFiles = ImmutableList.copyOf(inputs);
       List<JsInput> jsInputs = Lists.newArrayListWithCapacity(inputFiles.size());
       for (Pair<File, String> pair : inputFiles) {
@@ -1911,7 +1928,7 @@ public final class Config implements Comparable<Config> {
         String name = pair.getSecond();
 
         jsInputs.addAll(
-            LocalFileJsInput.createForFileWithName(file, name, soyFileOptions));
+            LocalFileJsInput.createForFileWithName(file, name, soyFileOptions, es6ImportRootDirectory));
       }
 
       jsInputs.addAll(this.jsInputs);

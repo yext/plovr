@@ -21,7 +21,7 @@ public class JsSourceFileTest {
     File testFile = new File(path);
     assertTrue("Test file could not be found: " + testFile, testFile.exists());
 
-    JsInput input = new JsSourceFile(path, testFile);
+    JsInput input = new JsSourceFile(path, testFile, null);
     List<String> provides = input.getProvides();
     assertEquals(2, provides.size());
     assertTrue(provides.contains("example.Foo"));

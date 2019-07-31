@@ -1,3 +1,13 @@
+Yext notes
+=========
+
+To rebuild our plovr jar:
+
+    buck build plovr && \
+      cp buck-out/gen/lib__plovr-lib__output/plovr-lib.jar $ALPHA/thirdparty/jars/ && \
+      jar -uf $ALPHA/thirdparty/jars/plovr-lib.jar -C third-party javascript/soyutils_usegoog.js
+
+
 Plovr: A Closure build tool
 ===========================
 

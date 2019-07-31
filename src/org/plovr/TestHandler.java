@@ -74,7 +74,7 @@ public class TestHandler extends AbstractGetHandler {
       File testJsFile = config.getTestFile(name);
       if (testJsFile != null) {
         JsInput testJsInput = Iterables.getOnlyElement(
-            LocalFileJsInput.createForFileWithName(testJsFile, name, null)
+            LocalFileJsInput.createForFileWithName(testJsFile, name, null, null)
         );
         String code = testJsInput.getCode();
         if (testJsInput.isModule()) {
@@ -118,7 +118,7 @@ public class TestHandler extends AbstractGetHandler {
 
     // Get the requires that we need.
     JsInput testJsInput = Iterables.getOnlyElement(
-        LocalFileJsInput.createForFileWithName(jsFile, jsFileName, null)
+        LocalFileJsInput.createForFileWithName(jsFile, jsFileName, null, null)
     );
 
     // Instead of loading base.js and the uncompiled test file, consider

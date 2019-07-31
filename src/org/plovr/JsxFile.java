@@ -6,15 +6,17 @@ import org.plovr.io.Files;
 
 public class JsxFile extends LocalFileJsInput {
 
-  public JsxFile(String name, File source) {
-    super(name, source);
+  public JsxFile(String name, File source, File es6ImportRootDirectory) {
+    super(name, source, es6ImportRootDirectory);
   }
 
   @Override
   public String generateCode() {
     try {
-      return JsxCompiler.getInstance().compile(
-          Files.toString(getSource()), getName());
+      File file = getSource();
+      return replaceJsxImports(
+          file.toPath(),
+          JsxCompiler.getInstance().compile(Files.toString(file), getName()));
     } catch (Exception e) {
       throw new RuntimeException("Exception while compiling " + this.getSource().toURI(), e);
     }

@@ -66,6 +66,7 @@ public final class Manifest {
   private final Set<File> externs;
   private final Set<JsInput> builtInExterns;
   private final boolean customExternsOnly;
+  private final File es6ImportRootDirectory;
 
   private final Supplier<Set<JsInput>> dependencySetSupplierInternal = new Supplier<Set<JsInput>>() {
     @Override public Set<JsInput> get() {
@@ -131,7 +132,8 @@ public final class Manifest {
         externs,
         builtInExterns,
         soyFileOptions,
-        customExternsOnly);
+        customExternsOnly,
+        null);
   }
 
   /**
@@ -152,7 +154,8 @@ public final class Manifest {
       @Nullable List<File> externs,
       @Nullable List<JsInput> builtInExterns,
       SoyFileOptions soyFileOptions,
-      boolean customExternsOnly) {
+      boolean customExternsOnly,
+      File es6ImportRootDirectory) {
     Preconditions.checkNotNull(dependencies);
     Preconditions.checkNotNull(requiredInputs);
     Preconditions.checkArgument(requiredInputs.size() > 0,
@@ -171,6 +174,7 @@ public final class Manifest {
         ? null : ImmutableSet.copyOf(builtInExterns);
     this.soyFileOptions = soyFileOptions;
     this.customExternsOnly = customExternsOnly;
+    this.es6ImportRootDirectory = es6ImportRootDirectory;
   }
 
   /**
@@ -274,7 +278,8 @@ public final class Manifest {
     } else {
       // TODO: Use a Supplier so that this is only done once.
       return new JsSourceFile(BASE_JS_INPUT_NAME,
-          new File(closureLibraryDirectory, "base.js"));
+          new File(closureLibraryDirectory, "base.js"),
+          es6ImportRootDirectory);
     }
   }
 
@@ -443,7 +448,8 @@ public final class Manifest {
         List<JsInput> input = LocalFileJsInput.createForFileWithName(
             file,
             name,
-            soyFileOptions
+            soyFileOptions,
+            es6ImportRootDirectory
         );
         logger.config("Dependency: " + input);
         output.addAll(input);

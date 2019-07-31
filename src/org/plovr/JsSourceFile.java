@@ -12,14 +12,18 @@ import org.plovr.io.Files;
  */
 public class JsSourceFile extends LocalFileJsInput {
 
-  JsSourceFile(String name, File source) {
-    super(name, source);
+  JsSourceFile(String name, File source, File es6ImportRootDirectory) {
+    super(name, source, es6ImportRootDirectory);
   }
 
   @Override
   public String generateCode() {
     try {
-      return Files.toString(getSource());
+      File file = getSource();
+      if (es6ImportRootDirectory == null) {
+          return Files.toString(file);
+      }
+      return replaceJsxImports(file.toPath(), Files.toString(file));
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
