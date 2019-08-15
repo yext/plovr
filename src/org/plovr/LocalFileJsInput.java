@@ -188,6 +188,8 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
   private static final Pattern ES6_IMPORT =
     Pattern.compile("(?m)^import (?:[^;]*? from )['\"](/[^'\"]+)['\"];");
 
+  private static final List<String> EXTENSIONS_TO_TRY = ImmutableList.of(".js", ".jsx");
+
   protected String replaceJsxImports(Path sourcePath, String source) {
     if (es6ImportRootDirectory == null) {
       return source;
@@ -196,7 +198,21 @@ public abstract class LocalFileJsInput extends AbstractJsInput {
     Matcher m = ES6_IMPORT.matcher(source);
     while (m.find()) {
       String importFilename = m.group(1);  // e.g. /js-spruce/yext/entitiesstorm/utils.js
-      Path importPath = new File(es6ImportRootDirectory, importFilename.substring(1)).toPath();
+      File importPathFile = new File(es6ImportRootDirectory, importFilename.substring(1));
+
+      // The import path may omit an extension, so pick the one that exists (if any).
+      if (!importPathFile.isFile()) {
+        String importPathStr = importPathFile.getAbsolutePath();
+        for (String ext : EXTENSIONS_TO_TRY) {
+          File extensionedImportPath = new File(importPathStr+ext);
+          if (extensionedImportPath.exists()) {
+            importPathFile = extensionedImportPath;
+            break;
+          }
+        }
+      }
+
+      Path importPath = importPathFile.toPath();
       Path relImportPath = sourcePath.getParent().relativize(importPath);
       String relImportPathStr = relImportPath.toString();
       if (!relImportPathStr.startsWith(".")) {
